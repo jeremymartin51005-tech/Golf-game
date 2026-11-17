@@ -50,9 +50,13 @@ public:
     // Placement on the course plan.
     Vec2 worldOrigin; double worldHeadingDeg = 0;
 
-    // Heightfield
+    // Heightfield: 2 m over the whole hole, plus a 0.5 m patch over the green and its surrounds so
+    // putting contours are real ground, not decoration.
     Vec2 gridMin; double cell = 2.0; int nx = 0, ny = 0;
     std::vector<float> heights;
+    Vec2 fineMin; double fineCell = 0.5; int fnx = 0, fny = 0;
+    std::vector<float> fineHeights;
+    double coarseHeight(Vec2 p) const;
 
     Vec2 pin() const { return green.pins[size_t(pinIndex)]; }
     Vec3 teePosition(int teeIndex) const;

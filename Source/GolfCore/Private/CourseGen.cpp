@@ -25,22 +25,24 @@ const char* templateName(HoleTemplate t) {
 const DifficultyParams& difficultyParams(Difficulty d) {
     static const DifficultyParams p[] = {
         // halfW  len   haz   green tilt  pin   carry drive stimp
-        {24.0, 0.86, 0.50, 1.18, 1.5, 2.0,  80, 200,  9.0},
-        {20.0, 0.93, 0.80, 1.08, 2.0, 2.5, 120, 220, 10.0},
-        {17.0, 1.00, 1.00, 1.00, 2.5, 3.0, 160, 235, 11.0},
-        {14.5, 1.04, 1.25, 0.93, 3.0, 3.5, 185, 245, 12.0},
+        // halfW  len   haz   green tilt  pin   carry drive stimp contour
+        {24.0, 0.86, 0.50, 1.18, 1.5, 2.0,  80, 200,  9.0, 0.55},
+        {20.0, 0.93, 0.80, 1.08, 2.0, 2.5, 120, 220, 10.0, 0.80},
+        {17.0, 1.00, 1.00, 1.00, 2.5, 3.0, 160, 235, 11.0, 1.00},
+        {14.5, 1.04, 1.25, 0.93, 3.0, 3.5, 185, 245, 12.0, 1.20},
     };
     return p[int(d)];
 }
 const EnvironmentParams& environmentParams(Environment e) {
     static const EnvironmentParams p[] = {
         // hill detail elev trees water bunk  windMin windMax tee  width alt  tMin tMax
-        {3.0, 0.5,  4.0, 1.00, 0.35, 1.0, 0.0,  5.0, 0.5, 1.00,   80, 14, 28}, // Parkland
-        {5.5, 0.8,  8.0, 0.60, 0.25, 1.2, 2.0,  7.0, 1.0, 1.00,  350, 10, 22}, // Highlands
-        {4.0, 1.2,  6.0, 0.20, 0.45, 1.0, 4.0, 10.0, 1.8, 1.05,   10, 12, 24}, // Coastal
-        {7.0, 1.0, 16.0, 1.20, 0.20, 0.9, 1.0,  6.0, 2.2, 0.90, 1500,  6, 20}, // Alpine
-        {3.0, 0.7,  5.0, 0.15, 0.10, 1.3, 1.0,  6.0, 1.0, 1.00,  600, 22, 38}, // Desert
-        {2.5, 1.3,  3.0, 0.05, 0.15, 1.5, 5.0, 11.0, 0.5, 1.10,    5,  9, 19}, // Links
+        // hill detail elev trees water bunk  windMin windMax tee  width alt  tMin tMax  roll wave
+        {3.0, 0.5,  4.0, 1.00, 0.35, 1.0, 0.0,  5.0, 0.5, 1.00,   80, 14, 28, 0.70, 48}, // Parkland
+        {5.5, 0.8,  8.0, 0.60, 0.25, 1.2, 2.0,  7.0, 1.0, 1.00,  350, 10, 22, 0.85, 45}, // Highlands
+        {4.0, 1.2,  6.0, 0.20, 0.45, 1.0, 4.0, 10.0, 1.8, 1.05,   10, 12, 24, 0.80, 38}, // Coastal
+        {7.0, 1.0, 16.0, 1.20, 0.20, 0.9, 1.0,  6.0, 2.2, 0.90, 1500,  6, 20, 0.70, 45}, // Alpine
+        {3.0, 0.7,  5.0, 0.15, 0.10, 1.3, 1.0,  6.0, 1.0, 1.00,  600, 22, 38, 0.65, 45}, // Desert
+        {2.5, 1.3,  3.0, 0.05, 0.15, 1.5, 5.0, 11.0, 0.5, 1.10,    5,  9, 19, 0.90, 34}, // Links
     };
     return p[int(e)];
 }
@@ -107,13 +109,27 @@ Vec3 HoleLayout::teePosition(int teeIndex) const {
     return {p.x, p.y, height(p)};
 }
 
-double HoleLayout::height(Vec2 p) const {
+double HoleLayout::coarseHeight(Vec2 p) const {
     double fx = clampd((p.x - gridMin.x) / cell, 0.0, nx - 1.001);
     double fy = clampd((p.y - gridMin.y) / cell, 0.0, ny - 1.001);
     int ix = int(fx), iy = int(fy);
     double tx = fx - ix, ty = fy - iy;
     auto at = [&](int x, int y) { return double(heights[size_t(y) * nx + x]); };
     return lerp(lerp(at(ix, iy), at(ix + 1, iy), tx), lerp(at(ix, iy + 1), at(ix + 1, iy + 1), tx), ty);
+}
+
+double HoleLayout::height(Vec2 p) const {
+    if (fnx < 2 || p.x <= fineMin.x || p.y <= fineMin.y) return coarseHeight(p);
+    double fx = (p.x - fineMin.x) / fineCell, fy = (p.y - fineMin.y) / fineCell;
+    if (fx >= fnx - 1 || fy >= fny - 1) return coarseHeight(p);
+    int ix = int(fx), iy = int(fy);
+    double tx = fx - ix, ty = fy - iy;
+    auto at = [&](int x, int y) { return double(fineHeights[size_t(y) * fnx + x]); };
+    double fine = lerp(lerp(at(ix, iy), at(ix + 1, iy), tx), lerp(at(ix, iy + 1), at(ix + 1, iy + 1), tx), ty);
+    // Fade to the coarse grid over the patch's outer 3 m, so there is never a step at its edge.
+    double edge = std::min(std::min(fx, fnx - 1 - fx), std::min(fy, fny - 1 - fy)) * fineCell;
+    if (edge >= 3.0) return fine;
+    return lerp(coarseHeight(p), fine, smoothstep(0.0, 3.0, edge));
 }
 
 Surface HoleLayout::surface(Vec2 p) const {
@@ -164,10 +180,38 @@ double noise(Vec2 p, double wavelength, uint64_t seed) {
                 lerp(lattice(ix, iy + 1, seed), lattice(ix + 1, iy + 1, seed), tx), ty);
 }
 
+struct GreenFeature { Vec2 c; double amp, r; };
+
+// Value noise sampled in a rotated frame per octave so the lattice never lines up with the hole.
+double rnoise(Vec2 p, double wavelength, uint64_t seed, double angle) { return noise(p.rotated(angle), wavelength, seed); }
+
 struct TerrainDesign {
     const HoleLayout* h;
     uint64_t seed;
     double hillAmp, detailAmp, teeRaise;
+    double rollAmp = 0, rollWave = 45;
+    // Green contours.
+    std::vector<GreenFeature> bumps;
+    bool tier = false; Vec2 tierDir; double tierOffset = 0, tierHeight = 0, tierWidth = 7;
+    double crown = 0;
+
+    double greenContour(Vec2 p) const {
+        const Vec2 c = h->green.shape.c;
+        double z = 0;
+        for (const GreenFeature& f : bumps) {
+            Vec2 d = p - f.c;
+            z += f.amp * std::exp(-(d.x * d.x + d.y * d.y) / (f.r * f.r));
+        }
+        if (tier) z += tierHeight * smoothstep(-0.5 * tierWidth, 0.5 * tierWidth, (p - c).dot(tierDir) - tierOffset);
+        if (crown != 0) {
+            Vec2 d = p - c;
+            double k = (d.x * d.x + d.y * d.y) / std::pow(std::max(h->green.shape.rx, h->green.shape.ry), 2);
+            z += crown * (1.0 - std::min(1.5, k));
+        }
+        z += 0.035 * rnoise(p, 5.0, seed + 9, 0.7);       // the little breaks you only see when putting
+        return z;
+    }
+
     std::vector<double> teeHeights, waterLevels;
     double greenPad = 0;
 
@@ -182,7 +226,9 @@ struct TerrainDesign {
         if (s > h->fairwayEnd) out += s - h->fairwayEnd;
         double low = hillAmp * (0.65 * noise(p, 180, seed) + 0.35 * noise(p, 90, seed + 1));
         double high = detailAmp * (0.6 * noise(p, 40, seed + 2) + 0.4 * noise(p, 18, seed + 3));
-        return base + low * (0.35 + 0.65 * smoothstep(0, 45, out)) + high * (0.2 + 0.8 * smoothstep(0, 15, out));
+        // Rolling ground through the playing corridor: mounds and swales that kick and hold a rolling ball.
+        double roll = rollAmp * (0.6 * rnoise(p, rollWave, seed + 5, 0.53) + 0.4 * rnoise(p, rollWave * 0.55, seed + 6, 1.21));
+        return base + roll + low * (0.35 + 0.65 * smoothstep(0, 45, out)) + high * (0.2 + 0.8 * smoothstep(0, 15, out));
     }
 
     void prepare() {
@@ -212,7 +258,7 @@ struct TerrainDesign {
         double gOut = (gk - 1.0) * std::min(g.rx, g.ry);
         if (gOut < 10.0) {
             Vec2 up = headingDir(h->green.tiltHeadingDeg);
-            double plane = greenPad + (p - g.c).dot(up) * h->green.tiltPct * 0.01 + 0.05 * noise(p, 11, seed + 7);
+            double plane = greenPad + (p - g.c).dot(up) * h->green.tiltPct * 0.01 + greenContour(p);
             z = lerp(z, plane, 1.0 - smoothstep(0.0, 10.0, gOut));
         }
         for (const Bunker& b : h->bunkers) {
@@ -239,10 +285,66 @@ void buildHeightfield(HoleLayout& h, const TerrainDesign& td) {
             h.heights[size_t(y) * h.nx + x] = float(td.design({h.gridMin.x + x * h.cell, h.gridMin.y + y * h.cell}));
 }
 
-double slopePct(const ITerrain& t, Vec2 p) {
-    Vec3 n = t.normal(p);
-    return 100.0 * std::sqrt(std::max(0.0, 1.0 - n.z * n.z)) / std::max(1e-6, n.z);
+void buildGreenPatch(HoleLayout& h, const TerrainDesign& td) {
+    const Ellipse& g = h.green.shape;
+    double r = std::max(g.rx, g.ry) + 14.0;
+    h.fineMin = {g.c.x - r, g.c.y - r};
+    h.fnx = h.fny = int(std::ceil(2.0 * r / h.fineCell)) + 1;
+    h.fineHeights.resize(size_t(h.fnx) * h.fny);
+    for (int y = 0; y < h.fny; ++y)
+        for (int x = 0; x < h.fnx; ++x)
+            h.fineHeights[size_t(y) * h.fnx + x] = float(td.design({h.fineMin.x + x * h.fineCell, h.fineMin.y + y * h.fineCell}));
 }
+
+// Slope a ball actually feels: the worst gradient within ~1 m.
+double localSlopePct(const ITerrain& t, Vec2 p) {
+    double worst = 0;
+    for (int i = 0; i < 5; ++i) {
+        Vec2 q = i == 0 ? p : p + headingDir(i * 90.0) * 0.9;
+        Vec3 n = t.normal(q);
+        worst = std::max(worst, 100.0 * std::sqrt(std::max(0.0, 1.0 - n.z * n.z)) / std::max(1e-6, n.z));
+    }
+    return worst;
+}
+
+// Pins go where a greenkeeper would cut them: on the flatter shelves, spread around the green.
+// pins[0] is the friendliest (nearest the middle); the rest run from safest to most tucked.
+std::vector<Vec2> choosePins(const HoleLayout& h, double maxSlopePct) {
+    const Ellipse& g = h.green.shape;
+    double minR = std::min(g.rx, g.ry);
+    std::vector<Vec2> cand;
+    for (double x = -g.rx; x <= g.rx; x += 1.25)
+        for (double y = -g.ry; y <= g.ry; y += 1.25) {
+            Vec2 p = g.c + Vec2{x, y};
+            if (g.norm(p) > 1.0 - 4.0 / minR) continue;
+            if (localSlopePct(h, p) <= maxSlopePct) cand.push_back(p);
+        }
+    std::vector<Vec2> pins;
+    if (cand.empty()) return pins;
+    auto hazardDist = [&](Vec2 p) {
+        double best = 1e9;
+        for (const Bunker& b : h.bunkers) best = std::min(best, (p - b.shape.c).length() - std::max(b.shape.rx, b.shape.ry));
+        for (const Ellipse& w : h.water) best = std::min(best, (w.norm(p) - 1.0) * std::min(w.rx, w.ry));
+        return best;
+    };
+    Vec2 easy = cand[0];
+    for (Vec2 p : cand) if ((p - g.c).length() < (easy - g.c).length()) easy = p;
+    pins.push_back(easy);
+    std::vector<Vec2> spread;
+    for (int k = 0; k < 4; ++k) {   // farthest-point sampling
+        Vec2 best = easy; double bestD = -1;
+        for (Vec2 p : cand) {
+            double d = (p - easy).length();
+            for (Vec2 q : spread) d = std::min(d, (p - q).length());
+            if (d > bestD) { bestD = d; best = p; }
+        }
+        spread.push_back(best);
+    }
+    std::sort(spread.begin(), spread.end(), [&](Vec2 a, Vec2 b) { return hazardDist(a) > hazardDist(b); });
+    pins.insert(pins.end(), spread.begin(), spread.end());
+    return pins;
+}
+
 
 bool nearAnything(const HoleLayout& h, Vec2 p, double margin) {
     if (h.green.shape.contains(p, margin)) return true;
@@ -433,26 +535,6 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg) 
         }
     }
 
-    // 7. Pin positions.
-    {
-        const Ellipse& g = h.green.shape;
-        Vec2 major = headingDir(g.rotDeg), minor = major.perp();
-        std::vector<Vec2> cand = {g.c + major * (g.ry * 0.5), g.c - major * (g.ry * 0.5), g.c + minor * (g.rx * 0.5), g.c - minor * (g.rx * 0.5)};
-        auto hazardDist = [&](Vec2 p) {
-            double best = 1e9;
-            for (const Bunker& b : h.bunkers) best = std::min(best, (p - b.shape.c).length() - std::max(b.shape.rx, b.shape.ry));
-            for (const Ellipse& w : h.water) best = std::min(best, (w.norm(p) - 1.0) * std::min(w.rx, w.ry));
-            return best;
-        };
-        for (size_t i = 0; i < cand.size(); ++i) // easiest (farthest from trouble) first
-            for (size_t j = i + 1; j < cand.size(); ++j)
-                if (hazardDist(cand[j]) > hazardDist(cand[i])) std::swap(cand[i], cand[j]);
-        h.green.pins.push_back(g.c);
-        for (Vec2 p : cand) h.green.pins.push_back(p);
-        int pd = int(clampd(cfg.pinDifficulty, 0, 3));
-        h.pinIndex = pd == 0 ? 0 : pd == 1 ? rng.rangeInt(1, 2) : pd == 2 ? rng.rangeInt(2, 3) : rng.rangeInt(3, 4);
-    }
-
     // 8. Terrain.
     h.elevationChange = rng.range(-ep.elevRange, ep.elevRange) * (par == 3 ? 0.6 : 1.0);
     TerrainDesign td;
@@ -461,10 +543,40 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg) 
     td.hillAmp = ep.hillAmp;
     td.detailAmp = ep.detailAmp;
     td.teeRaise = ep.teeRaise * rng.range(0.6, 1.2);
+    td.rollAmp = ep.rollAmp;
+    td.rollWave = ep.rollWave;
+    {   // Green contours, scaled by difficulty: a tier on some greens, ridges and hollows on all.
+        const Ellipse& g = h.green.shape;
+        double cs = dp.greenContour;
+        int nb = rng.rangeInt(2, 4);
+        for (int k = 0; k < nb; ++k) {
+            double ang = rng.range(0, 360), rad = std::sqrt(rng.uniform()) * 0.75;
+            Vec2 off = headingDir(ang);
+            double amp = rng.range(0.09, 0.24) * cs * (rng.chance(0.55) ? 1.0 : -1.0);
+            if (k == 0) amp = rng.range(0.17, 0.26) * std::max(cs, 0.8);   // every green has at least one real feature
+            double r = rng.range(4.8, 8.0);
+            td.bumps.push_back({g.c + Vec2{off.x * g.rx * rad, off.y * g.ry * rad}, amp, r});
+        }
+        td.tier = rng.chance(0.25 + 0.15 * int(cfg.difficulty));
+        double tierAng = approachHeading + (rng.chance(0.7) ? 0.0 : (rng.chance(0.5) ? 90.0 : -90.0));
+        td.tierDir = headingDir(tierAng);
+        td.tierOffset = rng.range(-0.25, 0.25) * std::min(g.rx, g.ry);
+        td.tierHeight = rng.range(0.20, 0.36) * cs;
+        td.tierWidth = rng.range(8.5, 11.5);
+        if (cfg.environment == Environment::Links || cfg.environment == Environment::Coastal) td.crown = rng.range(0.05, 0.18) * cs;
+    }
     td.prepare();
     buildHeightfield(h, td);
-    // Keep the pin on a puttable piece of green.
-    if (slopePct(h, h.pin()) > dp.maxPinSlopePct) h.pinIndex = 0;
+    buildGreenPatch(h, td);
+
+    // 7. Pin positions, cut on the real contoured surface.
+    h.green.pins = choosePins(h, dp.maxPinSlopePct);
+    if (h.green.pins.empty()) h.green.pins.push_back(h.green.shape.c);   // validation will reject this hole
+    while (h.green.pins.size() < 5) h.green.pins.push_back(h.green.pins[0]);
+    {
+        int pd = int(clampd(cfg.pinDifficulty, 0, 3));
+        h.pinIndex = pd == 0 ? 0 : pd == 1 ? rng.rangeInt(1, 2) : pd == 2 ? rng.rangeInt(2, 3) : rng.rangeInt(3, 4);
+    }
 
     // 9. Trees frame the hole from outside the playing corridor.
     for (double s = 20.0; s < L + 30.0; s += 16.0) {

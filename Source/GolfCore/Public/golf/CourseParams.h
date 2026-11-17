@@ -14,10 +14,12 @@ struct DifficultyParams {
     double maxForcedCarry;     // longest water carry the design may demand
     double driveDistance;      // where the first landing zone sits from the back tee
     double stimpFeet;
+    double greenContour;       // scale of tiers, ridges and hollows on greens
 };
 struct EnvironmentParams {
     double hillAmp, detailAmp, elevRange, treeDensity, waterChance, bunkerMult;
     double windMin, windMax, teeRaise, widthMult, altitudeM, tempMin, tempMax;
+    double rollAmp, rollWave;  // fairway undulation: amplitude (m) and wavelength (m)
 };
 const DifficultyParams& difficultyParams(Difficulty d);
 const EnvironmentParams& environmentParams(Environment e);

@@ -1,4 +1,4 @@
-# Status report (2026-11-17, second session)
+# Status report (2026-11-17, third session)
 
 ## Summary
 
@@ -28,11 +28,28 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Terrain and graphics update (third session)
+
+- **Greens are contoured ground, not decoration.** Each green has its own 0.5 m heightfield with an
+  overall tilt, ridges and hollows, and on many greens a tier. Pins are only cut where the ground is
+  flat enough (2-3.5% by difficulty) and are spread around the green. Ball physics, putting, the
+  green-reading line and course validation all use this same ground.
+- **Fairways roll.** Mounds and swales run through the playing corridor (more on links, coastal and
+  alpine courses, less on parkland and desert) and a rolling ball reacts to them.
+- **Shaders (browser build):** per-surface terrain detail (clumpy rough, sand grain, mown fairways,
+  smoother greens), micro-relief bump shading, relief lighting that makes contours readable, animated
+  water with sky reflection, sun glint and shoreline foam (ponds and the sea on coastal courses), a
+  shader sky with sun glow and horizon haze, swaying grass tufts in the rough and wind-moved trees,
+  weather-dependent lighting and exposure, and a vignette.
+- **Putting grid** (`G`, or Settings): 1 m squares on the green, tinted white, amber or red by slope.
+- A side effect of the real terrain: the AI golfers now score like real golfers (expert around
+  par to a few under, amateur around par to a few over), where before the expert shot about 8 under.
+
 ## What was tested, and how
 
 | What | Result |
 |---|---|
-| Core unit tests | 42 of 42 pass |
+| Core unit tests | 45 of 45 pass (new: green relief, puttable and spread pins, fairway roll, seamless green patch) |
 | Native (gcc, x86) vs WebAssembly (clang) | 12 generated courses identical |
 | Browser: real mouse events through the swing | Works (pull back, push through, strike; release early backs off) |
 | Browser: classic and assisted swings, club/shot keys, pause, settings | Work |
@@ -60,13 +77,12 @@ Settings to see real numbers on your machine.
 - Unreal version: never compiled; no materials, UI, audio or character assets.
 - Not built at all: the three hand-designed 18-hole courses, Career, Tournament and Challenge modes,
   Chaos Mode, multiplayer, online leaderboards, course designer, replays.
-- Browser build is stylised low-poly, not the "modern sports game" visual target.
+- Browser build is stylised (low-poly trees and golfer, procedural textures), not the photoreal target the Unreal version is for. Unreal materials (the .uasset files) cannot be created without the editor, so the Unreal terrain still needs its material made there.
+- Changing the terrain changed every seed: share codes and Daily Courses from before this update now produce different layouts.
 
 ## Known bugs and weaknesses
 
 - Swing feel is unassessed by a human; default sensitivity and tempo are educated guesses.
-- The AI golfer used for course validation is unrealistically good, so it proves holes are
-  finishable, not that they are well balanced.
 - Driver carry is about 9 yards short of the tour reference.
 - Each hole has its own terrain; neighbouring holes are not visible from one another.
 - Trees are cylinders to the physics; hitting one is abrupt. The tree-hit sound is not timed to the hit.

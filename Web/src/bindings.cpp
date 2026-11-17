@@ -184,6 +184,27 @@ void EXPORT(ng_hole_info)(int i) {
     b[25] = double(h.centerline.size());
     for (size_t k = 0; k < h.centerline.size() && k < 8; ++k) { b[26 + 2 * k] = h.centerline[k].x; b[27 + 2 * k] = h.centerline[k].y; }
 }
+// Exact physics ground height (includes the fine green patch), for placing anything on the ground.
+double EXPORT(ng_height)(int i, double x, double y) { return hole(i).height({x, y}); }
+
+// Fine green patch: gBuf = minX, minY, cell, nx, ny.
+void EXPORT(ng_hole_green_patch)(int i) {
+    const HoleLayout& h = hole(i);
+    gBuf[0] = h.fineMin.x; gBuf[1] = h.fineMin.y; gBuf[2] = h.fineCell; gBuf[3] = h.fnx; gBuf[4] = h.fny;
+}
+
+// Water: per pond cx, cy, rx, ry, rotDeg, surface height.
+int EXPORT(ng_hole_water)(int i) {
+    const HoleLayout& h = hole(i);
+    size_t n = std::min<size_t>(h.water.size(), 32);
+    for (size_t k = 0; k < n; ++k) {
+        const Ellipse& w = h.water[k];
+        gBuf[k * 6] = w.c.x; gBuf[k * 6 + 1] = w.c.y; gBuf[k * 6 + 2] = w.rx; gBuf[k * 6 + 3] = w.ry; gBuf[k * 6 + 4] = w.rotDeg;
+        gBuf[k * 6 + 5] = h.height(w.c) + 0.12;
+    }
+    return int(n);
+}
+
 float* EXPORT(ng_hole_heights)(int i) { return const_cast<float*>(hole(i).heights.data()); }
 const char* EXPORT(ng_hole_template)(int i) { return gRange ? "Practice range" : templateName(hole(i).tmpl); }
 

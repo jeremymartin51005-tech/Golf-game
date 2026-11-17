@@ -8,7 +8,7 @@ import base64, pathlib
 root = pathlib.Path(__file__).resolve().parent
 html = (root / 'src/index.template.html').read_text()
 three = (root / 'vendor/three.min.js').read_text()
-game = (root / 'src/game.js').read_text()
+game = (root / 'src/shaders.js').read_text() + '\n' + (root / 'src/game.js').read_text()
 wasm = base64.b64encode((root / 'build/golfcore.wasm').read_bytes()).decode()
 for name, text in (('three', three), ('game', game)):
     assert '</script' not in text.lower(), name + ' contains a closing script tag'

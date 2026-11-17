@@ -35,7 +35,7 @@ const store = {
   set(key, value) { try { localStorage.setItem('ngg.' + key, JSON.stringify(value)); } catch (e) { /* private mode: play on without saving */ } },
 };
 const defaults = { swingDifficulty: 0, swingMode: 'natural', sensitivity: 1, swingLength: 380, downswingTime: 0.28, units: 'yd',
-                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam' };
+                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam', puttGrid: true };
 const settings = Object.assign({}, defaults, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); }
 
@@ -45,9 +45,9 @@ const ROSTER = [
   { id: 'sam', name: 'Sam Rivers', blurb: 'Balanced all-rounder.', attr: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
     look: { height: 1.0, build: 1.0, skin: 0xd9a77c, shirt: 0xf4f4f0, trousers: 0x2b3440, hat: 'cap', hatColor: 0x2b3440, hair: 0x4a3524 } },
   { id: 'stretch', name: 'Stretch', blurb: 'Seven foot four with a swing arc to match. Enormous power, less touch.', attr: [0.96, 0.5, 0.55, 0.45, 0.6, 0.5],
-    look: { height: 1.26, build: 0.84, skin: 0x8a5a3c, shirt: 0x1c1c1f, trousers: 0xc9cdd2, hat: 'headband', hatColor: 0xffffff, hair: 0x141210 } },
-  { id: 'chef', name: 'Big Chef', blurb: '99 overall. Every attribute maxed out.', attr: [1, 1, 1, 1, 1, 1],
-    look: { height: 0.98, build: 1.5, skin: 0x6b4226, shirt: 0xc23a2c, trousers: 0x2d3b8e, hat: 'toque', hatColor: 0xffffff, hair: 0x141210, apron: true, chest: 1, belly: 1, rear: 1, beard: true } },
+    look: { height: 1.26, build: 0.84, skin: 0x8a5a3c, shirt: 0xe8762c, trousers: 0x1f4e5f, hat: 'headband', hatColor: 0xe8762c, hair: 0x141210 } },
+  { id: 'chef', name: 'Big Chef', blurb: '99 overall. Every attribute maxed out. Runs the clubhouse kitchen between rounds.', attr: [1, 1, 1, 1, 1, 1],
+    look: { height: 0.98, build: 1.5, skin: 0xc68a5e, shirt: 0xf3efe4, trousers: 0x5a5f66, hat: 'toque', hatColor: 0xffffff, hair: 0x6a4a32, apron: true, apronColor: 0x2f7d5b, chest: 1, belly: 1, rear: 1, beard: true } },
   { id: 'rookie', name: 'The Rookie', blurb: 'Raw beginner. Pick this if you want it hard.', attr: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
     look: { height: 0.94, build: 0.92, skin: 0xf0c8a0, shirt: 0xf2c230, trousers: 0x6a6f3a, hat: 'cap', hatColor: 0xd04a3a, hair: 0xb5651d } },
 ];
@@ -163,6 +163,7 @@ function resize() {
 function heightAt(x, y) {
   const w = world;
   if (!w.heights) return 0;
+  if (core && w.holeIndex !== undefined) return core.ng_height(w.holeIndex, x, y);   // includes the fine green
   const fx = Math.min(Math.max((x - w.gx) / w.cell, 0), w.nx - 1.001), fy = Math.min(Math.max((y - w.gy) / w.cell, 0), w.ny - 1.001);
   const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, H = w.heights, n = w.nx;
   const a = H[iy * n + ix], b = H[iy * n + ix + 1], c = H[(iy + 1) * n + ix], d = H[(iy + 1) * n + ix + 1];
@@ -202,7 +203,8 @@ function buildHole(index, env, weather) {
   const info = Array.from(buf(48));
   const nx = info[2], ny = info[3], cell = info[4], gx = info[5], gy = info[6];
   const heights = new Float32Array(new Float32Array(core.memory.buffer, core.ng_hole_heights(index), nx * ny)); // copy
-  Object.assign(world, { heights, nx, ny, cell, gx, gy, env });
+  Object.assign(world, { heights, nx, ny, cell, gx, gy, env, holeIndex: index });
+  world.timeUniforms = [];
 
   // Trees first: their shadows are painted into the terrain texture.
   const nTrees = core.ng_hole_trees(index);
@@ -244,45 +246,133 @@ function buildHole(index, env, weather) {
   tex.flipY = false;
   tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+  const ids = new THREE.DataTexture(new Uint8Array(map), mw, mh, THREE.RedFormat, THREE.UnsignedByteType);
+  ids.magFilter = THREE.NearestFilter; ids.minFilter = THREE.NearestFilter; ids.flipY = false; ids.needsUpdate = true;
+  const terrainMat = GolfShaders.terrainMaterial(tex, ids);
+  world.terrainUniforms = terrainMat.userData.uniforms;
 
-  // Terrain mesh.
-  const pos = new Float32Array(nx * ny * 3), uv = new Float32Array(nx * ny * 2);
+  // Terrain: the 2 m grid everywhere except around the green, where a 0.5 m mesh shows every contour.
+  // Both take height and normals from the core, so what you see is exactly what the ball rolls on.
+  const W = (nx - 1) * cell, Hh = (ny - 1) * cell;
+  const groundNormal = (x, y, e) => {
+    const dx = (core.ng_height(index, x + e, y) - core.ng_height(index, x - e, y)) / (2 * e);
+    const dy = (core.ng_height(index, x, y + e) - core.ng_height(index, x, y - e)) / (2 * e);
+    const l = Math.hypot(dx, dy, 1);
+    return [-dx / l, 1 / l, dy / l];             // three.js: y up, z = -sim y
+  };
+  core.ng_hole_green_patch(index);
+  const gp = buf(5);
+  const ix0 = Math.max(0, Math.floor((gp[0] - gx) / cell) - 1), iy0 = Math.max(0, Math.floor((gp[1] - gy) / cell) - 1);
+  const ix1 = Math.min(nx - 1, Math.ceil((gp[0] + (gp[3] - 1) * gp[2] - gx) / cell) + 1), iy1 = Math.min(ny - 1, Math.ceil((gp[1] + (gp[4] - 1) * gp[2] - gy) / cell) + 1);
+  const hasFine = gp[3] > 1 && ix1 > ix0 && iy1 > iy0;
   let minH = 1e9;
-  for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
-    const k = iy * nx + ix, h = heights[k];
-    pos[k * 3] = gx + ix * cell; pos[k * 3 + 1] = h; pos[k * 3 + 2] = -(gy + iy * cell);
-    uv[k * 2] = ix / (nx - 1); uv[k * 2 + 1] = iy / (ny - 1);
-    if (h < minH) minH = h;
+  const makeGrid = (cols, rows, x0, y0, step, heightFn, skip) => {
+    const pos = new Float32Array(cols * rows * 3), nor = new Float32Array(cols * rows * 3), uv = new Float32Array(cols * rows * 2);
+    for (let iy = 0; iy < rows; iy++) for (let ix = 0; ix < cols; ix++) {
+      const k = iy * cols + ix, x = x0 + ix * step, y = y0 + iy * step, h = heightFn(ix, iy, x, y);
+      pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = -y;
+      const n = groundNormal(x, y, 1.0);
+      nor[k * 3] = n[0]; nor[k * 3 + 1] = n[1]; nor[k * 3 + 2] = n[2];
+      uv[k * 2] = (x - gx) / W; uv[k * 2 + 1] = (y - gy) / Hh;
+      if (h < minH) minH = h;
+    }
+    const idx = [];
+    for (let iy = 0; iy < rows - 1; iy++) for (let ix = 0; ix < cols - 1; ix++) {
+      if (skip && skip(ix, iy)) continue;
+      const a = iy * cols + ix, b = a + 1, c = a + cols, d = c + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(cols * rows > 65535 ? new THREE.Uint32BufferAttribute(idx, 1) : new THREE.Uint16BufferAttribute(idx, 1));
+    const mesh = new THREE.Mesh(geo, terrainMat);
+    mesh.receiveShadow = true;
+    mesh.castShadow = settings.quality > 1;
+    g.add(mesh);
+    return mesh;
+  };
+  makeGrid(nx, ny, gx, gy, cell, (ix, iy) => heights[iy * nx + ix], hasFine ? (ix, iy) => ix >= ix0 && ix < ix1 && iy >= iy0 && iy < iy1 : null);
+  if (hasFine) {
+    const sub = Math.max(1, Math.round(cell / gp[2]));
+    const step = cell / sub;
+    makeGrid((ix1 - ix0) * sub + 1, (iy1 - iy0) * sub + 1, gx + ix0 * cell, gy + iy0 * cell, step, (ix, iy, x, y) => core.ng_height(index, x, y));
   }
-  const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
-  let q = 0;
-  for (let iy = 0; iy < ny - 1; iy++) for (let ix = 0; ix < nx - 1; ix++) {
-    const a = iy * nx + ix, b = a + 1, c = a + nx, d = c + 1;
-    idx[q++] = a; idx[q++] = b; idx[q++] = c; idx[q++] = b; idx[q++] = d; idx[q++] = c;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  geo.computeVertexNormals();
-  const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
-  ground.receiveShadow = true;
-  g.add(ground);
 
   // Surroundings: open sea for coastal courses, otherwise distant ground.
   const far = pal[10];
   const surroundColor = env === 2 ? 0x2f6f9c : (far[0] << 16) | (far[1] << 8) | far[2];
-  const surround = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshLambertMaterial({ color: surroundColor }));
+  const sky0 = SKY[weather] || SKY[0];
+  const sunStrength = [1.0, 0.8, 0.25, 0.15, 1.0, 0.1][weather] || 1;
+  const surround = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), env === 2
+    ? GolfShaders.waterMaterial({ sunDir: SUN_DIR, sunStrength, skyTop: sky0[0], skyHorizon: sky0[1], fogColor: sky0[1], fogDensity: sky0[2],
+                                  cx: 0, cy: 0, rx: 1e6, ry: 1e6, rotDeg: 0, deep: 0x0d3550, shallow: 0x2a7f8f, chop: 1.6 })
+    : new THREE.MeshLambertMaterial({ color: surroundColor }));
+  if (env === 2) world.timeUniforms.push(surround.material.uniforms.uTime);
   surround.rotation.x = -Math.PI / 2;
   surround.position.set(gx + nx * cell / 2, minH - (env === 2 ? 2.5 : 1.2), -(gy + ny * cell / 2));
   g.add(surround);
+
+  // Ponds: a shaded water surface over each hazard (terrain beneath is carved, so the banks clip it).
+  const nWater = core.ng_hole_water(index);
+  const ponds = Array.from(buf(nWater * 6));
+  for (let k = 0; k < nWater; k++) {
+    const [cx, cy, rx, ry, rot, level] = ponds.slice(k * 6, k * 6 + 6);
+    const m = GolfShaders.waterMaterial({ sunDir: SUN_DIR, sunStrength, skyTop: sky0[0], skyHorizon: sky0[1], fogColor: sky0[1], fogDensity: sky0[2],
+                                          cx, cy, rx, ry, rotDeg: rot });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 72), m);
+    disc.rotation.order = 'YXZ';
+    disc.rotation.set(-Math.PI / 2, -rot * Math.PI / 180, 0);
+    disc.scale.set(rx + 9, ry + 9, 1);
+    disc.position.set(cx, level, -cy);
+    disc.receiveShadow = false;
+    g.add(disc);
+    world.timeUniforms.push(m.uniforms.uTime);
+  }
+
+  // Grass tufts in the rough, swaying in the wind (Balanced and Quality only).
+  const tuftCount = [0, 14000, 42000][settings.quality];
+  if (tuftCount > 0) {
+    const swayU = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2(0.3, 0) } };
+    const tuftMat = GolfShaders.addSway(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), swayU, 0.22);
+    const tufts = new THREE.InstancedMesh(GolfShaders.tuftGeometry(), tuftMat, tuftCount);
+    const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), p3 = new THREE.Vector3(), s3 = new THREE.Vector3(), c3 = new THREE.Color();
+    const tuftBase = [palette(env)[3], palette(env)[4]];
+    let placed = 0, seed = 12345 + index * 977;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let tries = 0; tries < tuftCount * 6 && placed < tuftCount; tries++) {
+      const mx = Math.floor(rnd() * mw), my = Math.floor(rnd() * mh), sid = map[my * mw + mx];
+      if (sid !== SURF.Rough && sid !== SURF.DeepRough && sid !== SURF.FirstCut) continue;
+      if (sid === SURF.FirstCut && rnd() < 0.7) continue;
+      const x = gx + (mx + rnd()) * res, y = gy + (my + rnd()) * res;
+      const tall = sid === SURF.DeepRough ? 0.55 + rnd() * 0.35 : sid === SURF.Rough ? 0.3 + rnd() * 0.25 : 0.12 + rnd() * 0.08;
+      q4.setFromAxisAngle(UP, rnd() * 6.283);
+      p3.set(x, core.ng_height(index, x, y) - 0.02, -y);
+      s3.set(tall * (0.8 + rnd() * 0.6), tall, tall * (0.8 + rnd() * 0.6));
+      tufts.setMatrixAt(placed, m4.compose(p3, q4, s3));
+      const b = tuftBase[sid === SURF.DeepRough ? 1 : 0];
+      c3.setRGB(b[0] / 255, b[1] / 255, b[2] / 255, THREE.SRGBColorSpace).offsetHSL((rnd() - 0.5) * 0.05, 0, (rnd() - 0.3) * 0.12);
+      tufts.setColorAt(placed, c3);
+      placed++;
+    }
+    tufts.count = placed;
+    tufts.instanceMatrix.needsUpdate = true;
+    if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+    tufts.computeBoundingSphere();
+    g.add(tufts);
+    world.timeUniforms.push(swayU.uTime);
+    world.windUniforms = [swayU.uWind];
+  } else world.windUniforms = [];
 
   // Trees (instanced): two canopy masses per tree with a little colour variation.
   if (nTrees > 0) {
     const pine = env === 3 || env === 1;
     const canopyGeo = pine ? new THREE.ConeGeometry(1, 1, 8) : new THREE.IcosahedronGeometry(1, 1);
     const base = new THREE.Color([0x4a8f42, 0x41783f, 0x55904c, 0x2a6336, 0x858c46, 0x698648][env]);
-    const canopy = new THREE.InstancedMesh(canopyGeo, new THREE.MeshLambertMaterial({ flatShading: true }), nTrees * 2);
+    const treeU = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2(0.3, 0) } };
+    const canopy = new THREE.InstancedMesh(canopyGeo, GolfShaders.addSway(new THREE.MeshLambertMaterial({ flatShading: true }), treeU, 0.05), nTrees * 2);
+    world.timeUniforms.push(treeU.uTime); world.windUniforms.push(treeU.uWind);
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.32, 1, 6), new THREE.MeshLambertMaterial({ color: 0x5b4532 }), nTrees);
     canopy.castShadow = true; trunk.castShadow = true;
     const m = new THREE.Matrix4(), s = new THREE.Vector3(), p = new THREE.Vector3(), rot = new THREE.Quaternion(), col = new THREE.Color();
@@ -328,16 +418,9 @@ function buildHole(index, env, weather) {
 
   // Sky and fog follow the weather.
   const sky = SKY[weather] || SKY[0];
-  const skyGeo = new THREE.SphereGeometry(2200, 24, 12);
-  const colors = new Float32Array(skyGeo.attributes.position.count * 3);
-  const top = new THREE.Color(sky[0]), hor = new THREE.Color(sky[1]), c = new THREE.Color();
-  for (let i = 0; i < skyGeo.attributes.position.count; i++) {
-    const t = Math.min(1, Math.max(0, skyGeo.attributes.position.getY(i) / 900));
-    c.copy(hor).lerp(top, Math.pow(t, 0.6));
-    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
-  }
-  skyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const skyMesh = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2200, 32, 16), GolfShaders.skyMaterial(sky[0], sky[1], SUN_DIR, sunStrength));
+  skyMesh.renderOrder = -10;
+  skyMesh.frustumCulled = false;
   const skyGroup = new THREE.Group();
   skyGroup.add(skyMesh);
   // Clouds: soft sprites on the dome. Count and tint follow the weather.
@@ -359,16 +442,6 @@ function buildHole(index, env, weather) {
     cloud.scale.set(w, w * 0.42, 1);
     cloud.lookAt(0, 0, 0);
     skyGroup.add(cloud);
-  }
-  if (weather === 0 || weather === 1 || weather === 4) {
-    const sunTex = document.createElement('canvas'); sunTex.width = sunTex.height = 128;
-    const sc = sunTex.getContext('2d'), sg = sc.createRadialGradient(64, 64, 0, 64, 64, 64);
-    sg.addColorStop(0, 'rgba(255,252,235,1)'); sg.addColorStop(0.12, 'rgba(255,248,215,0.95)'); sg.addColorStop(0.3, 'rgba(255,240,190,0.28)'); sg.addColorStop(1, 'rgba(255,240,190,0)');
-    sc.fillStyle = sg; sc.fillRect(0, 0, 128, 128);
-    const disc = new THREE.Mesh(new THREE.PlaneGeometry(520, 520), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sunTex), transparent: true, fog: false, depthWrite: false }));
-    disc.position.copy(SUN_DIR).multiplyScalar(1900);
-    disc.lookAt(0, 0, 0);
-    skyGroup.add(disc);
   }
   // Distant hills give the horizon some shape (mountains with snow for alpine; none out at sea or on links).
   if (env !== 2 && env !== 5) {
@@ -393,6 +466,12 @@ function buildHole(index, env, weather) {
   world.sky = skyGroup;
   g.add(skyGroup);
   scene.fog = new THREE.FogExp2(sky[1], sky[2]);
+  world.fogDensity = sky[2];
+  if (world.sun) world.sun.intensity = [2.4, 1.9, 0.9, 0.7, 2.3, 0.6][weather] || 2;
+  renderer.toneMappingExposure = [1.05, 1.08, 1.18, 1.2, 1.05, 1.15][weather] || 1.05;
+  // Wind for grass, trees and water ripples, in render space.
+  const wd = info[21] * Math.PI / 180, ws = Math.min(1.5, 0.25 + info[22] / 6);
+  for (const u of world.windUniforms) u.value.set(Math.sin(wd) * ws, -Math.cos(wd) * ws);
   scene.add(g);
   return info;
 }
@@ -400,7 +479,8 @@ function buildHole(index, env, weather) {
 // Persistent objects: ball, shadow, tracer, aim aids, golfer.
 const actors = {};
 function initActors() {
-  actors.ball = new THREE.Mesh(new THREE.SphereGeometry(0.0213, 16, 12), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+  actors.ball = new THREE.Mesh(new THREE.SphereGeometry(0.0213, 20, 14), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }));
+  actors.ball.castShadow = true;
   actors.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.03, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
   actors.shadow.rotation.x = -Math.PI / 2;
   actors.tracerGeo = new THREE.BufferGeometry();
@@ -446,8 +526,9 @@ function buildGolferFigure() {
   tg.rotation.order = 'ZYX';
   add(tg, new THREE.CylinderGeometry(0.2 * b, 0.17 * b, 0.56, 14), shirt, 0, 0.3, 0, 1, 1, 1.15);
   if (L.belly) add(tg, sphere(0.21 * b), shirt, 0.1, 0.2, 0);
-  if (L.apron) add(tg, sphere(0.21 * b), white, 0.125, 0.19, 0, 1.0, 1.08, 0.78);
-  if (L.chest) for (const z of [-0.12, 0.12]) add(tg, sphere(0.125), L.apron ? white : shirt, 0.19, 0.43, z * b * 0.8);
+  const apronM = mat(L.apronColor || 0xf7f7f2);
+  if (L.apron) add(tg, sphere(0.21 * b), apronM, 0.125, 0.19, 0, 1.0, 1.08, 0.78);
+  if (L.chest) for (const z of [-0.12, 0.12]) add(tg, sphere(0.125), shirt, 0.19, 0.43, z * b * 0.8);
   add(tg, sphere(0.1), shirt, 0, 0.55, 0, 1, 0.8, 2.3 * b);
   add(tg, new THREE.CylinderGeometry(0.05, 0.055, 0.1, 8), skin, 0, 0.63, 0);
   add(tg, sphere(0.115), skin, 0.02, 0.76, 0);
@@ -884,7 +965,8 @@ function updateHud() {
   $('hClub').textContent = cstr(core.ng_club_name(game.club));
   const elev = s.pinElev;
   $('hDist').textContent = shortDist(s.toPin) + (Math.abs(elev) >= 1 ? (elev > 0 ? ' ▲' : ' ▼') + shortDist(Math.abs(elev)) : '');
-  $('hLie').textContent = cstr(core.ng_lie_name());
+  const LIES = ['Tee', 'Fairway', 'First Cut', 'Rough', 'Deep Rough', 'Sand', 'Green', 'Fringe', 'Hard Ground', 'Water', 'Out of Bounds'];
+  $('hLie').textContent = game.mode === 'flight' && game.outcome ? LIES[game.outcome.from.lie] : LIES[s.lie];
   $('hType').textContent = game.club === PUTTER ? 'Putt' : cstr(core.ng_shot_type_name(game.shotType));
   $('hShape').textContent = game.club === PUTTER ? '—' : shapeText();
   const capture = !pointerLocked && canvas.requestPointerLock && !lockFailed ? '<b style="color:var(--accent)">Click once to capture the mouse</b><br>' : '';
@@ -892,7 +974,7 @@ function updateHud() {
     ? '<kbd>Hold left mouse</kbd> pull back, then push through'
     : settings.swingMode === 'classic' ? '<kbd>Click</kbd> start · <kbd>click</kbd> power · <kbd>click</kbd> on the line' : '<kbd>Hold</kbd> to fill power · release to hit');
   $('hudHelp').innerHTML = modeHelp + '<br>Aim <kbd>mouse</kbd>/<kbd>A</kbd><kbd>D</kbd> · Club <kbd>W</kbd><kbd>S</kbd> · Shot <kbd>Q</kbd><kbd>E</kbd><br>' +
-    'Draw/Fade <kbd>Z</kbd><kbd>X</kbd> · Low/High <kbd>C</kbd><kbd>V</kbd> · Style <kbd>F</kbd> · Reset <kbd>R</kbd><br>Map <kbd>M</kbd> · Card <kbd>Tab</kbd> · Menu <kbd>Esc</kbd>';
+    'Draw/Fade <kbd>Z</kbd><kbd>X</kbd> · Low/High <kbd>C</kbd><kbd>V</kbd> · Style <kbd>F</kbd> · Reset <kbd>R</kbd><br>Map <kbd>M</kbd> · Grid <kbd>G</kbd> · Card <kbd>Tab</kbd> · Menu <kbd>Esc</kbd>';
   $('fps').style.display = settings.showFps ? 'block' : 'none';
 }
 let bannerTimer = 0;
@@ -1034,8 +1116,10 @@ function settingsMenu(body, back) {
   select(body, 'Handedness', ['Right-handed', 'Left-handed'], settings.leftHanded ? 1 : 0, (v) => { settings.leftHanded = v === '1'; saveSettings(); });
   select(body, 'Units', [{ value: 'yd', label: 'Yards / feet / mph' }, { value: 'm', label: 'Metres / km/h' }], settings.units, (v) => { settings.units = v; saveSettings(); });
   select(body, 'Graphics', ['Performance', 'Balanced', 'Quality'], settings.quality, (v) => { settings.quality = Number(v); saveSettings(); applyQuality(); resize(); });
+  body.appendChild(el('p', { className: 'note' }, 'Graphics: Performance has no live shadows or grass; Quality adds dense swaying grass and terrain self-shadowing. A change of graphics takes full effect on the next hole.'));
   slider(body, 'Sound volume', 0, 1, 0.05, settings.volume, (v) => Math.round(v * 100) + '%', (v) => { settings.volume = v; saveSettings(); });
   select(body, 'Shot tracer', ['Off', 'On'], settings.tracer ? 1 : 0, (v) => { settings.tracer = v === '1'; saveSettings(); });
+  select(body, 'Putting grid', ['Off', 'On'], settings.puttGrid ? 1 : 0, (v) => { settings.puttGrid = v === '1'; saveSettings(); });
   select(body, 'Frame-time display', ['Off', 'On'], settings.showFps ? 1 : 0, (v) => { settings.showFps = v === '1'; saveSettings(); });
   body.appendChild(el('p', { className: 'note' }, 'A full backswing is the distance your mouse travels for 100% power. Shorten it if you run out of desk; lengthen it for finer control.'));
   button(body, 'Done', '', () => { if (back === 'resume') resume(); else showMenu(back); }, 'primary');
@@ -1314,6 +1398,13 @@ function frame(ms) {
     const w = game.info[22];
     world.flag.rotation.y = Math.PI / 2 - game.info[21] * Math.PI / 180 + Math.sin(ms * 0.006) * 0.18 * Math.min(1, 0.3 + w / 5);
   }
+  if (world.timeUniforms) for (const u of world.timeUniforms) u.value = ms / 1000;
+  if (scene.fog && world.fogDensity) scene.fog.density = world.fogDensity * (game.overhead ? 0.2 : 1);
+  if (world.terrainUniforms) {
+    const gridOn = settings.puttGrid && game.club === PUTTER && game.state.lie === SURF.Green && (game.mode === 'aim' || game.mode === 'swing') && !game.overhead;
+    world.terrainUniforms.uGrid.value = gridOn ? 1 : 0;
+    world.terrainUniforms.uGridCenter.value.set(game.state.x, game.state.y);
+  }
   updateCamera(dt, ball);
   renderer.render(scene, camera);
 }
@@ -1346,6 +1437,7 @@ function onKey(e) {
     case 'KeyR': nudge('reset'); break;
     case 'KeyM': game.overhead = !game.overhead; break;
     case 'KeyT': settings.tracer = !settings.tracer; saveSettings(); break;
+    case 'KeyG': settings.puttGrid = !settings.puttGrid; saveSettings(); flashBanner(settings.puttGrid ? 'Putting grid on' : 'Putting grid off', '', 900); break;
     case 'Space': e.preventDefault();
       if (game.mode === 'result') continueAfterShot();
       else if (game.mode === 'flight') game.flightSpeed = 4;
@@ -1405,6 +1497,7 @@ function boot() {
       return phase === 3;
     },
     skip() { if (game.mode === 'flight') { game.playT = game.path[(game.pathN - 1) * 5]; } },
+    beginHole(i) { beginHole(i); },
     next() { continueAfterShot(); },
   };
 }

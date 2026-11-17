@@ -18,6 +18,7 @@ A golf simulator with a mouse-controlled swing and procedurally generated course
 | `F` | Swing style (full, three-quarter, half, controlled) |
 | `R` | Reset shot shape |
 | `M` | Overhead map |
+| `G` | Putting grid (slope-tinted) |
 | `Tab` / `Esc` | Scorecard and pause menu |
 | `Space` | Continue / fast-forward the ball |
 
@@ -28,7 +29,7 @@ local statistics. See [docs/STATUS.md](docs/STATUS.md) for exactly what exists a
 
 | Path | What it is | Verified? |
 |---|---|---|
-| `Source/GolfCore/` | Engine-independent simulation: swing analysis, impact, ball flight, putting, clubs, course generation and validation, rules, scoring, AI golfer, Daily seed, share codes | 42 automated tests; native and WebAssembly builds generate identical courses |
+| `Source/GolfCore/` | Engine-independent simulation: swing analysis, impact, ball flight, putting, clubs, course generation and validation, rules, scoring, AI golfer, Daily seed, share codes | 45 automated tests; native and WebAssembly builds generate identical courses |
 | `Web/` | Browser game: three.js renderer and UI around the core compiled to WebAssembly | Played end to end by automated browser tests (headless Chromium) |
 | `CoreHarness/` | CMake build, tests and `golfcli` tool for the core | Yes |
 | `Source/NextGenGolf/`, `Config/`, `NextGenGolf.uproject` | Unreal Engine 5 project for the downloadable version (Windows and Mac) | **No. Never compiled or opened in Unreal** |

@@ -237,3 +237,82 @@ TEST(traditional_rules_never_enable_chaos) {
     static_assert(!r.chaos && !r.powerShotsAllowed, "traditional golf must stay traditional");
     CHECK(!r.chaos);
 }
+
+// ---- Terrain realism ----------------------------------------------------------------------------
+
+static double slopeAt(const ITerrain& t, Vec2 p) {
+    Vec3 n = t.normal(p);
+    return 100.0 * std::sqrt(std::max(0.0, 1.0 - n.z * n.z)) / n.z;
+}
+
+TEST(terrain_greens_have_real_contours_and_puttable_pins) {
+    int greens = 0, tiered = 0;
+    for (int d = 0; d < 4; ++d) {
+        CourseConfig cfg; cfg.seed = 31337 + uint64_t(d); cfg.difficulty = Difficulty(d); cfg.environment = Environment(d % 6);
+        Course c = generateCourse(cfg);
+        const DifficultyParams& dp = difficultyParams(cfg.difficulty);
+        for (const HoleLayout& h : c.holes) {
+            const Ellipse& g = h.green.shape;
+            // Height relief across the green after removing its overall tilt.
+            Vec2 up{std::sin(deg2rad(h.green.tiltHeadingDeg)), std::cos(deg2rad(h.green.tiltHeadingDeg))};
+            double lo = 1e9, hi = -1e9, steep = 0;
+            int n = 0, over2 = 0;
+            for (double u = -0.85; u <= 0.85; u += 0.1)
+                for (double v = -0.85; v <= 0.85; v += 0.1) {
+                    if (u * u + v * v > 0.72) continue;
+                    Vec2 p = g.c + Vec2{u * g.rx, v * g.ry};
+                    double z = h.height(p) - (p - g.c).dot(up) * h.green.tiltPct * 0.01;
+                    lo = std::min(lo, z); hi = std::max(hi, z);
+                    double sl = slopeAt(h, p);
+                    steep = std::max(steep, sl);
+                    ++n; if (sl > 2.0) ++over2;
+                }
+            ++greens;
+            CHECK(hi - lo > (d == 0 ? 0.08 : 0.15));          // not a flat plate
+            if (hi - lo > 0.35) ++tiered;
+            CHECK(steep < 11.0);
+            if (d >= 1) CHECK(over2 > n / 10);                // a real share of the green has putt-bending slope (Beginner greens are gentle by design)
+            CHECK(slopeAt(h, h.pin()) <= dp.maxPinSlopePct + 0.6);
+            // Pins are spread over the green, not stacked in one spot.
+            double spread = 0;
+            for (Vec2 p : h.green.pins) spread = std::max(spread, (p - h.green.pins[0]).length());
+            CHECK(spread > 4.0);
+        }
+    }
+    CHECK(tiered * 5 > greens);   // plenty of greens with big contour changes
+}
+
+TEST(terrain_fairways_roll_but_stay_playable) {
+    for (int e = 0; e < int(Environment::Count); ++e) {
+        CourseConfig cfg; cfg.seed = 4400 + uint64_t(e); cfg.environment = Environment(e);
+        Course c = generateCourse(cfg);
+        double steepest = 0, sumDev = 0; int samples = 0;
+        for (const HoleLayout& h : c.holes) {
+            if (h.par == 3) continue;
+            // Detrended height along the fairway centreline: how much it rises and falls.
+            double a = h.fairwayStart + 10, b = h.fairwayEnd - 10;
+            double za = h.height(h.pointAt(a)), zb = h.height(h.pointAt(b));
+            for (double s = a; s <= b; s += 4) {
+                Vec2 p = h.pointAt(s);
+                double trend = lerp(za, zb, (s - a) / (b - a));
+                sumDev += std::fabs(h.height(p) - trend); ++samples;
+                if (h.surface(p) == Surface::Fairway) steepest = std::max(steepest, slopeAt(h, p));
+            }
+        }
+        double meanDev = sumDev / samples;
+        CHECK(meanDev > 0.25);        // you can see the ground move
+        CHECK(steepest < 16.0);       // but a ball still comes to rest on the fairway
+    }
+}
+
+TEST(terrain_height_is_continuous_at_the_green_patch_edge) {
+    CourseConfig cfg; cfg.seed = 77; cfg.environment = Environment::Highlands;
+    Course c = generateCourse(cfg);
+    for (const HoleLayout& h : c.holes) {
+        double x0 = h.fineMin.x, x1 = h.fineMin.x + (h.fnx - 1) * h.fineCell;
+        for (double y = h.fineMin.y + 1; y < h.fineMin.y + (h.fny - 1) * h.fineCell - 1; y += 1.7)
+            for (double x : {x0, x1})
+                for (double e : {-0.01, 0.01})
+                    CHECK(std::fabs(h.height({x + e, y}) - h.height({x - e, y})) < 0.02);
+    }
+}

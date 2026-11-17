@@ -35,19 +35,24 @@ ValidationReport validateHole(const HoleLayout& h, const CourseConfig& cfg, cons
     const Ellipse& g = h.green.shape;
     Vec2 major{std::sin(deg2rad(g.rotDeg)), std::cos(deg2rad(g.rotDeg))};
     double worst = 0;
-    for (double u = -0.9; u <= 0.901; u += 0.3)
-        for (double v = -0.9; v <= 0.901; v += 0.3) {
-            if (u * u + v * v > 0.85) continue;
+    for (double u = -0.9; u <= 0.901; u += 0.1)
+        for (double v = -0.9; v <= 0.901; v += 0.1) {
+            if (u * u + v * v > 0.81) continue;
             Vec2 p = g.c + major.perp() * (u * g.rx) + major * (v * g.ry);
             if (h.surface(p) != Surface::Green) fail("a hazard overlaps the putting surface");
             worst = std::max(worst, slopePct(h, p));
         }
-    if (worst > 6.5) fail("green is too severe to putt");
+    if (worst > 11.0) fail("green is too severe to putt");   // tier faces may be steep; pins never are
     if (std::min(g.rx, g.ry) < 8.0) fail("green is too small");
     if (h.green.pins.empty() || h.pinIndex < 0 || h.pinIndex >= int(h.green.pins.size())) { fail("no pin"); return r; }
     Vec2 pin = h.pin();
     if (g.norm(pin) > 1.0 - 3.5 / std::min(g.rx, g.ry)) fail("pin is closer than 3.5 m to the edge");
     if (slopePct(h, pin) > dp.maxPinSlopePct + 0.5) fail("pin is cut on too steep a slope");
+    {   // A green needs several genuinely different hole locations.
+        double spread = 0;
+        for (Vec2 p : h.green.pins) spread = std::max(spread, (p - h.green.pins[0]).length());
+        if (spread < 5.0) fail("green has too little flat ground for varied pin positions");
+    }
 
     // Landing zones are real, findable fairway.
     for (const LandingZone& z : h.landingZones) {
