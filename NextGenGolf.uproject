@@ -1,0 +1,14 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "",
+	"Category": "",
+	"Description": "Next-generation golf simulator. Simulation core lives in the GolfCore module.",
+	"Modules": [
+		{ "Name": "GolfCore", "Type": "Runtime", "LoadingPhase": "PreDefault" },
+		{ "Name": "NextGenGolf", "Type": "Runtime", "LoadingPhase": "Default", "AdditionalDependencies": [ "Engine", "GolfCore" ] }
+	],
+	"Plugins": [
+		{ "Name": "ProceduralMeshComponent", "Enabled": true }
+	],
+	"TargetPlatforms": [ "Mac" ]
+}

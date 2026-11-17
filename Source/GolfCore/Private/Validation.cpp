@@ -65,11 +65,10 @@ ValidationReport validateHole(const HoleLayout& h, const CourseConfig& cfg, cons
     // Walk the centreline: the fairway must be continuous and any forced carry fair.
     Vec3 tee = h.teePosition(cfg.teeIndex);
     double teeS = h.project(tee.xy());
-    double run = 0, longest = 0;
+    double longest = 0; // distance from the tee to the far bank of the last water on the line
     for (double s = teeS; s < h.lengthM; s += 3.0) {
         Surface sf = h.surface(h.pointAt(s));
-        if (sf == Surface::Water) { run += 3.0; longest = std::max(longest, s - teeS); }
-        else run = 0;
+        if (sf == Surface::Water) longest = std::max(longest, s - teeS);
         if (s >= h.fairwayStart + 1.0 && s <= h.fairwayEnd - 1.0 && sf != Surface::Fairway) fail("the fairway is interrupted by " + std::string(surfaceName(sf)));
         if (sf == Surface::OutOfBounds) fail("the line of play leaves the property");
     }
