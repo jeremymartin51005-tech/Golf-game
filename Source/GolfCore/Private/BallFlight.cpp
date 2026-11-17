@@ -276,7 +276,9 @@ PuttLaunch computePutt(const SwingResult& sw, double maxPuttSpeed, const PlayerA
     if (!sw.valid) return p;
     double skill = 1.20 - 0.40 * attr.putting;
     // Backswing length sets pace; a rushed stroke hits it harder, a decelerating one leaves it short.
-    double pace = sw.power * (1.0 - clampd(sw.timingError, -0.5, 0.5) * 0.25 * skill);
+    // Progressive stroke: most of the backswing range is devoted to short and medium putts, so a tap-in
+    // is a small but deliberate stroke rather than a twitch.
+    double pace = std::pow(sw.power, 1.6) * (1.0 - clampd(sw.timingError, -0.5, 0.5) * 0.25 * skill);
     if (sw.contact == Contact::Fat) pace *= 0.6 + 0.4 * sw.contactQuality;
     p.speed = maxPuttSpeed * pace;
     p.azimuthDeg = (0.35 * sw.faceDeg + 0.10 * sw.pathDeg) * skill;
