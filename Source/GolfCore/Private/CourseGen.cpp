@@ -37,8 +37,8 @@ const EnvironmentParams& environmentParams(Environment e) {
         // hill detail elev trees water bunk  windMin windMax tee  width alt  tMin tMax
         {3.0, 0.5,  4.0, 1.00, 0.35, 1.0, 0.0,  5.0, 0.5, 1.00,   80, 14, 28}, // Parkland
         {5.5, 0.8,  8.0, 0.60, 0.25, 1.2, 2.0,  7.0, 1.0, 1.00,  350, 10, 22}, // Highlands
-        {4.0, 1.2,  6.0, 0.20, 0.45, 1.0, 4.0, 10.0, 3.0, 1.05,   10, 12, 24}, // Coastal
-        {7.0, 1.0, 16.0, 1.20, 0.20, 0.9, 1.0,  6.0, 4.0, 0.90, 1500,  6, 20}, // Alpine
+        {4.0, 1.2,  6.0, 0.20, 0.45, 1.0, 4.0, 10.0, 1.8, 1.05,   10, 12, 24}, // Coastal
+        {7.0, 1.0, 16.0, 1.20, 0.20, 0.9, 1.0,  6.0, 2.2, 0.90, 1500,  6, 20}, // Alpine
         {3.0, 0.7,  5.0, 0.15, 0.10, 1.3, 1.0,  6.0, 1.0, 1.00,  600, 22, 38}, // Desert
         {2.5, 1.3,  3.0, 0.05, 0.15, 1.5, 5.0, 11.0, 0.5, 1.10,    5,  9, 19}, // Links
     };
@@ -205,7 +205,7 @@ struct TerrainDesign {
         }
         for (size_t i = 0; i < h->tees.size(); ++i) {
             double d = (p - h->tees[i].pos).length();
-            z = lerp(z, teeHeights[i], 1.0 - smoothstep(4.5, 11.0, d));
+            z = lerp(z, teeHeights[i], 1.0 - smoothstep(4.5, 14.0, d)); // tees are at least 14 m apart
         }
         const Ellipse& g = h->green.shape;
         double gk = g.norm(p);

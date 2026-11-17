@@ -109,6 +109,12 @@ extern "C" {
 double* EXPORT(ng_buf)() { return gBuf; }
 char* EXPORT(ng_strbuf)() { return gStr; }
 
+// Created-golfer attributes, each 0..1 (0.5 = average). They scale mistakes and speed; they never hit the shot.
+void EXPORT(ng_set_attributes)(double power, double accuracy, double shortGame, double putting, double recovery, double consistency) {
+    gAttr.power = clampd(power, 0, 1); gAttr.accuracy = clampd(accuracy, 0, 1); gAttr.shortGame = clampd(shortGame, 0, 1);
+    gAttr.putting = clampd(putting, 0, 1); gAttr.recovery = clampd(recovery, 0, 1); gAttr.consistency = clampd(consistency, 0, 1);
+}
+
 int EXPORT(ng_generate)(double seedHi, double seedLo, int env, int diff, int tee, int haz, int pin) {
     CourseConfig cfg;
     cfg.seed = (uint64_t(uint32_t(seedHi)) << 32) | uint64_t(uint32_t(seedLo));

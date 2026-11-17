@@ -179,6 +179,44 @@ TEST(rules_water_penalty_drop_and_out_of_bounds) {
     }
 }
 
+TEST(rules_green_in_regulation_needs_two_strokes_in_hand) {
+    RulesHole h;                       // par 4, pin at (0, 300)
+    Conditions cond;
+    auto chipIn = [&](int strokesBefore) {
+        HolePlay play(h, cond, 0);
+        Launch lay; lay.ballSpeed = 30; lay.launchDeg = 30; lay.spinRpm = 6000;   // short lay-ups down the fairway
+        for (int i = 0; i < strokesBefore; ++i) play.playShot(lay, 0);
+        return play;
+    };
+    {   // Reaching the green with the second shot on a par 4 is a GIR.
+        HolePlay play(h, cond, 0);
+        Launch drive; drive.ballSpeed = 62; drive.launchDeg = 12; drive.spinRpm = 3000;
+        play.playShot(drive, 0);
+        CHECK(play.result().strokes == 1 && !play.result().gir);
+    }
+    {   // Three strokes used and still not on the green: whatever happens next is not a GIR.
+        HolePlay play = chipIn(3);
+        CHECK(play.result().strokes == 3 && !play.result().gir);
+        Launch chip; chip.ballSpeed = 8; chip.launchDeg = 20; chip.spinRpm = 2000;
+        for (int i = 0; i < 6 && play.lie() != Surface::Green && !play.holed(); ++i) play.playShot(chip, play.headingTo(h.pin()));
+        CHECK(!play.result().gir);
+    }
+}
+
+TEST(putting_tap_ins_are_playable_with_a_real_stroke) {
+    // The smallest stroke the swing analyser accepts must be a gentle tap, and a 60% stroke a long lag.
+    SwingSettings s = SwingSettings::forDifficulty(SwingDifficulty::Simulation);
+    SyntheticSwing tiny; tiny.power = 0.12;
+    SyntheticSwing big; big.power = 0.6;
+    FlatTerrain g(Surface::Green);
+    SwingResult a = runSwing(synthesizeSwing(tiny, s), s), b = runSwing(synthesizeSwing(big, s), s);
+    CHECK(a.valid && b.valid);
+    double shortRoll = simulatePutt(computePutt(a).speed, {0, 0, 0}, 0, g, {}, {}).total;
+    double longRoll = simulatePutt(computePutt(b).speed, {0, 0, 0}, 0, g, {}, {}).total;
+    CHECK_RANGE(shortRoll, 0.01, 0.6);
+    CHECK_RANGE(longRoll, 4.0, 14.0);
+}
+
 TEST(scoring_names_and_scorecard_totals) {
     CHECK(std::string(scoreName(1, 3)) == "Hole in One");
     CHECK(std::string(scoreName(3, 5)) == "Eagle");

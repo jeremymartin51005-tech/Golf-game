@@ -72,7 +72,8 @@ void HolePlay::settle(const ShotOutcome& o, bool wasPutt) {
             break;
     }
     if (teeShot && hole_.par >= 4) res_.fairwayHit = o.reason == RestReason::Stopped && (lie_ == Surface::Fairway || lie_ == Surface::Green);
-    if (!res_.gir && (lie_ == Surface::Green || res_.holed) && res_.strokes <= hole_.par - 2 + (res_.holed ? 1 : 0)) res_.gir = true;
+    // Green in regulation: on the putting surface (or in the hole) with at least two strokes left for par.
+    if (!res_.gir && (lie_ == Surface::Green || res_.holed) && res_.strokes <= hole_.par - 2) res_.gir = true;
 }
 
 int Scorecard::strokes() const { int s = 0; for (auto& h : holes) s += h.strokes; return s; }

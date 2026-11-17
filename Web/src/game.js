@@ -35,9 +35,28 @@ const store = {
   set(key, value) { try { localStorage.setItem('ngg.' + key, JSON.stringify(value)); } catch (e) { /* private mode: play on without saving */ } },
 };
 const defaults = { swingDifficulty: 0, swingMode: 'natural', sensitivity: 1, swingLength: 380, downswingTime: 0.28, units: 'yd',
-                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true };
+                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam' };
 const settings = Object.assign({}, defaults, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); }
+
+// Selectable golfers. Attributes: power, accuracy, short game, putting, recovery, consistency (0..1).
+// All four are original characters; players can rename any of them.
+const ROSTER = [
+  { id: 'sam', name: 'Sam Rivers', blurb: 'Balanced all-rounder.', attr: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    look: { height: 1.0, build: 1.0, skin: 0xd9a77c, shirt: 0xf4f4f0, trousers: 0x2b3440, hat: 'cap', hatColor: 0x2b3440, hair: 0x4a3524 } },
+  { id: 'stretch', name: 'Stretch', blurb: 'Seven foot four with a swing arc to match. Enormous power, less touch.', attr: [0.96, 0.5, 0.55, 0.45, 0.6, 0.5],
+    look: { height: 1.26, build: 0.84, skin: 0x8a5a3c, shirt: 0x1c1c1f, trousers: 0xc9cdd2, hat: 'headband', hatColor: 0xffffff, hair: 0x141210 } },
+  { id: 'chef', name: 'Big Chef', blurb: '99 overall. Every attribute maxed out.', attr: [1, 1, 1, 1, 1, 1],
+    look: { height: 0.98, build: 1.5, skin: 0x6b4226, shirt: 0xc23a2c, trousers: 0x2d3b8e, hat: 'toque', hatColor: 0xffffff, hair: 0x141210, apron: true, chest: 1, belly: 1, rear: 1, beard: true } },
+  { id: 'rookie', name: 'The Rookie', blurb: 'Raw beginner. Pick this if you want it hard.', attr: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+    look: { height: 0.94, build: 0.92, skin: 0xf0c8a0, shirt: 0xf2c230, trousers: 0x6a6f3a, hat: 'cap', hatColor: 0xd04a3a, hair: 0xb5651d } },
+];
+const ATTR_NAMES = ['Power', 'Accuracy', 'Short game', 'Putting', 'Recovery', 'Consistency'];
+function golferById(id) { return ROSTER.find((g) => g.id === id) || ROSTER[0]; }
+function golferName(g) { const names = store.get('names', {}); return names[g.id] || g.name; }
+function overall(g) { return Math.round(50 + 49 * g.attr.reduce((a, b) => a + b, 0) / g.attr.length); }
+// The Daily Course is a like-for-like competition, so everyone plays it with the same standard attributes.
+function applyGolfer(standard) { const a = standard ? ROSTER[0].attr : golferById(settings.golfer).attr; core.ng_set_attributes(a[0], a[1], a[2], a[3], a[4], a[5]); }
 
 const SURF = { Tee: 0, Fairway: 1, FirstCut: 2, Rough: 3, DeepRough: 4, Sand: 5, Green: 6, Fringe: 7, Hard: 8, Water: 9, OOB: 10 };
 const PUTTER = 16, SHOT_COUNT = 12;
@@ -108,17 +127,32 @@ function initRenderer() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(52, 1, 0.3, 2400);
-  scene.add(new THREE.HemisphereLight(0xe6f1ff, 0x5a6a44, 1.2));
-  const sun = new THREE.DirectionalLight(0xfff2d8, 1.05);
-  sun.position.set(-0.55, 0.8, 0.35);
-  scene.add(sun);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  scene.add(new THREE.HemisphereLight(0xe6f1ff, 0x6a7a50, 1.35));
+  const sun = new THREE.DirectionalLight(0xfff0d0, 2.1);
+  sun.castShadow = true;
+  sun.shadow.camera.left = -28; sun.shadow.camera.right = 28; sun.shadow.camera.top = 28; sun.shadow.camera.bottom = -28;
+  sun.shadow.camera.near = 10; sun.shadow.camera.far = 260;
+  sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.06;
+  scene.add(sun, sun.target);
+  world.sun = sun;
   applyQuality();
   window.addEventListener('resize', resize);
   resize();
 }
+const SUN_DIR = new THREE.Vector3(-0.55, 0.8, 0.35).normalize();
 function applyQuality() {
   const cap = [1, 1.5, 2][settings.quality];
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+  // Real-time shadows near the ball on Balanced and Quality; Performance relies on the painted ones.
+  renderer.shadowMap.enabled = settings.quality > 0;
+  if (world.sun) {
+    const size = settings.quality > 1 ? 2048 : 1024;
+    if (world.sun.shadow.mapSize.x !== size) { world.sun.shadow.mapSize.set(size, size); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
+  }
+  scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
 }
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -191,6 +225,10 @@ function buildHole(index, env, weather) {
       if (s === SURF.Green) n += (Math.floor((x + y) * res / 2.5) % 2 ? 4 : -4);
       if (s === SURF.Rough || s === SURF.DeepRough || s === SURF.OOB) n += 9 * Math.sin(x * 0.045) * Math.sin(y * 0.038);
       if (s === SURF.Water) n = 6 * Math.sin(x * 0.11 + y * 0.07);
+      // Edges: a shaded lip around bunkers and a darker bank around water read as depth from a distance.
+      if ((s === SURF.Sand || s === SURF.Water) && x > 2 && y > 2 && x < mw - 3 && y < mh - 3) {
+        if (map[y * mw + x - 3] !== s || map[y * mw + x + 3] !== s || map[(y - 3) * mw + x] !== s || map[(y + 3) * mw + x] !== s) n -= s === SURF.Sand ? 26 : 18;
+      }
       px[i] = c[0] + n; px[i + 1] = c[1] + n; px[i + 2] = c[2] + n; px[i + 3] = 255;
     }
   }
@@ -199,7 +237,7 @@ function buildHole(index, env, weather) {
   for (let t = 0; t < nTrees; t++) {
     const tx = trees[t * 5], ty = trees[t * 5 + 1], r = trees[t * 5 + 3], h = trees[t * 5 + 4];
     ctx.beginPath();
-    ctx.ellipse((tx + h * 0.45 - gx) / res, (ty - h * 0.25 - gy) / res, r * 1.5 / res, r * 1.1 / res, 0, 0, Math.PI * 2);
+    ctx.ellipse((tx + h * 0.45 - gx) / res, (ty + h * 0.29 - gy) / res, r * 1.5 / res, r * 1.1 / res, 0, 0, Math.PI * 2);
     ctx.fill();
   }
   const tex = new THREE.CanvasTexture(cv);
@@ -227,7 +265,9 @@ function buildHole(index, env, weather) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   geo.computeVertexNormals();
-  g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex })));
+  const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+  ground.receiveShadow = true;
+  g.add(ground);
 
   // Surroundings: open sea for coastal courses, otherwise distant ground.
   const far = pal[10];
@@ -237,21 +277,29 @@ function buildHole(index, env, weather) {
   surround.position.set(gx + nx * cell / 2, minH - (env === 2 ? 2.5 : 1.2), -(gy + ny * cell / 2));
   g.add(surround);
 
-  // Trees (instanced).
+  // Trees (instanced): two canopy masses per tree with a little colour variation.
   if (nTrees > 0) {
     const pine = env === 3 || env === 1;
-    const canopyGeo = pine ? new THREE.ConeGeometry(1, 1, 7) : new THREE.IcosahedronGeometry(1, 1);
-    const canopyColor = [0x3f7d3a, 0x3a6b3c, 0x4b7f45, 0x24552f, 0x77803f, 0x5d7a40][env];
-    const canopy = new THREE.InstancedMesh(canopyGeo, new THREE.MeshLambertMaterial({ color: canopyColor, flatShading: true }), nTrees);
-    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.3, 1, 6), new THREE.MeshLambertMaterial({ color: 0x5b4532 }), nTrees);
-    const m = new THREE.Matrix4(), s = new THREE.Vector3(), p = new THREE.Vector3(), rot = new THREE.Quaternion();
+    const canopyGeo = pine ? new THREE.ConeGeometry(1, 1, 8) : new THREE.IcosahedronGeometry(1, 1);
+    const base = new THREE.Color([0x4a8f42, 0x41783f, 0x55904c, 0x2a6336, 0x858c46, 0x698648][env]);
+    const canopy = new THREE.InstancedMesh(canopyGeo, new THREE.MeshLambertMaterial({ flatShading: true }), nTrees * 2);
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.32, 1, 6), new THREE.MeshLambertMaterial({ color: 0x5b4532 }), nTrees);
+    canopy.castShadow = true; trunk.castShadow = true;
+    const m = new THREE.Matrix4(), s = new THREE.Vector3(), p = new THREE.Vector3(), rot = new THREE.Quaternion(), col = new THREE.Color();
     for (let t = 0; t < nTrees; t++) {
       const tx = trees[t * 5], ty = trees[t * 5 + 1], tz = trees[t * 5 + 2], r = trees[t * 5 + 3], h = trees[t * 5 + 4];
-      rot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t * 1.7);
-      if (pine) { p.set(tx, tz + h * 0.58, -ty); s.set(r, h * 0.84, r); }
-      else { p.set(tx, tz + h * 0.66, -ty); s.set(r * 1.15, h * 0.36, r * 1.15); }
-      canopy.setMatrixAt(t, m.compose(p, rot, s));
-      p.set(tx, tz + h * 0.25, -ty); s.set(1, h * 0.5, 1);
+      const v = ((t * 2654435761) >>> 0) / 4294967296;           // stable per-tree variation
+      rot.setFromAxisAngle(UP, t * 1.7);
+      col.copy(base).offsetHSL((v - 0.5) * 0.04, (v - 0.5) * 0.1, (v - 0.5) * 0.09);
+      if (pine) {
+        p.set(tx, tz + h * 0.46, -ty); s.set(r * 1.05, h * 0.62, r * 1.05); canopy.setMatrixAt(t * 2, m.compose(p, rot, s));
+        p.set(tx, tz + h * 0.76, -ty); s.set(r * 0.68, h * 0.48, r * 0.68); canopy.setMatrixAt(t * 2 + 1, m.compose(p, rot, s));
+      } else {
+        p.set(tx, tz + h * 0.62, -ty); s.set(r * 1.2, h * 0.34, r * 1.2); canopy.setMatrixAt(t * 2, m.compose(p, rot, s));
+        p.set(tx + r * 0.45 * Math.cos(t), tz + h * 0.8, -ty + r * 0.45 * Math.sin(t)); s.set(r * 0.8, h * 0.24, r * 0.8); canopy.setMatrixAt(t * 2 + 1, m.compose(p, rot, s));
+      }
+      canopy.setColorAt(t * 2, col); canopy.setColorAt(t * 2 + 1, col.offsetHSL(0, 0, 0.035));
+      p.set(tx, tz + h * 0.25, -ty); s.set(1 + r * 0.12, h * 0.5, 1 + r * 0.12);
       trunk.setMatrixAt(t, m.compose(p, rot, s));
     }
     g.add(canopy, trunk);
@@ -267,7 +315,8 @@ function buildHole(index, env, weather) {
   flagGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 2.1, 0, 0, 1.72, 0, 0.55, 1.91, 0]), 3));
   const flag = new THREE.Mesh(flagGeo, new THREE.MeshBasicMaterial({ color: 0xd8342a, side: THREE.DoubleSide }));
   flag.position.copy(pin);
-  world.flag = flag; world.pole = pole;
+  pole.castShadow = true;
+  world.flag = flag; world.pole = pole; world.pin = pin;
   g.add(cup, pole, flag);
 
   // Tee markers.
@@ -289,8 +338,60 @@ function buildHole(index, env, weather) {
   }
   skyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const skyMesh = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
-  world.sky = skyMesh;
-  g.add(skyMesh);
+  const skyGroup = new THREE.Group();
+  skyGroup.add(skyMesh);
+  // Clouds: soft sprites on the dome. Count and tint follow the weather.
+  const puff = document.createElement('canvas'); puff.width = puff.height = 128;
+  const pc = puff.getContext('2d');
+  for (let i = 0; i < 9; i++) {
+    const cx = 30 + ((i * 53) % 70), cy = 50 + ((i * 31) % 30), r = 22 + ((i * 17) % 18);
+    const gr = pc.createRadialGradient(cx, cy, 0, cx, cy, r);
+    gr.addColorStop(0, 'rgba(255,255,255,0.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    pc.fillStyle = gr; pc.fillRect(0, 0, 128, 128);
+  }
+  const puffTex = new THREE.CanvasTexture(puff);
+  const cloudCount = [7, 16, 26, 26, 10, 0][weather] || 0, cloudTint = [0xffffff, 0xf4f6f8, 0xc9ced2, 0xaab0b6, 0xffffff, 0xffffff][weather];
+  for (let i = 0; i < cloudCount; i++) {
+    const az = (i * 2.399) + weather, el = 0.14 + ((i * 0.6180339) % 1) * 0.5, R = 1700;
+    const cloud = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: puffTex, color: cloudTint, transparent: true, opacity: 0.9, fog: false, depthWrite: false }));
+    cloud.position.set(Math.cos(az) * Math.cos(el) * R, Math.sin(el) * R, Math.sin(az) * Math.cos(el) * R);
+    const w = 420 + ((i * 97) % 380);
+    cloud.scale.set(w, w * 0.42, 1);
+    cloud.lookAt(0, 0, 0);
+    skyGroup.add(cloud);
+  }
+  if (weather === 0 || weather === 1 || weather === 4) {
+    const sunTex = document.createElement('canvas'); sunTex.width = sunTex.height = 128;
+    const sc = sunTex.getContext('2d'), sg = sc.createRadialGradient(64, 64, 0, 64, 64, 64);
+    sg.addColorStop(0, 'rgba(255,252,235,1)'); sg.addColorStop(0.12, 'rgba(255,248,215,0.95)'); sg.addColorStop(0.3, 'rgba(255,240,190,0.28)'); sg.addColorStop(1, 'rgba(255,240,190,0)');
+    sc.fillStyle = sg; sc.fillRect(0, 0, 128, 128);
+    const disc = new THREE.Mesh(new THREE.PlaneGeometry(520, 520), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sunTex), transparent: true, fog: false, depthWrite: false }));
+    disc.position.copy(SUN_DIR).multiplyScalar(1900);
+    disc.lookAt(0, 0, 0);
+    skyGroup.add(disc);
+  }
+  // Distant hills give the horizon some shape (mountains with snow for alpine; none out at sea or on links).
+  if (env !== 2 && env !== 5) {
+    const segs = 96, ring = new Float32Array((segs + 1) * 2 * 3), rc = new Float32Array((segs + 1) * 2 * 3);
+    const tall = env === 3 ? 330 : env === 1 ? 150 : env === 4 ? 120 : 70;
+    const lowC = new THREE.Color(env === 4 ? 0x9a7b5a : 0x4c6b4a), highC = new THREE.Color(env === 3 ? 0xf2f5f8 : env === 4 ? 0xb08a62 : 0x5f7d5c);
+    for (let i = 0; i <= segs; i++) {
+      const a = i / segs * Math.PI * 2, R = 1250;
+      const hgt = tall * (0.35 + 0.65 * Math.abs(Math.sin(a * 3.1 + env) * Math.sin(a * 7.3 + 1.7) + 0.35 * Math.sin(a * 17.0)));
+      ring.set([Math.cos(a) * R, -30, Math.sin(a) * R, Math.cos(a) * R, hgt, Math.sin(a) * R], i * 6);
+      const top = lowC.clone().lerp(highC, Math.min(1, hgt / tall));
+      rc.set([lowC.r, lowC.g, lowC.b, top.r, top.g, top.b], i * 6);
+    }
+    const hi = [];
+    for (let i = 0; i < segs; i++) { const a = i * 2; hi.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.BufferAttribute(ring, 3));
+    hg.setAttribute('color', new THREE.BufferAttribute(rc, 3));
+    hg.setIndex(hi);
+    skyGroup.add(new THREE.Mesh(hg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  }
+  world.sky = skyGroup;
+  g.add(skyGroup);
   scene.fog = new THREE.FogExp2(sky[1], sky[2]);
   scene.add(g);
   return info;
@@ -317,20 +418,57 @@ function initActors() {
   actors.ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 40), new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
   actors.ring.rotation.x = -Math.PI / 2;
 
-  // A simple golfer: enough to read the swing, not a character model.
-  const skin = new THREE.MeshLambertMaterial({ color: 0xd9a77c }), shirt = new THREE.MeshLambertMaterial({ color: 0xf0f0f0 }),
-        trousers = new THREE.MeshLambertMaterial({ color: 0x2b3440 }), steel = new THREE.MeshLambertMaterial({ color: 0xb8bcc2 });
-  const gf = new THREE.Group();
-  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.14, 0.9, 8), trousers); legs.position.y = 0.45;
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.62, 8), shirt); torso.position.y = 1.2; torso.rotation.z = -0.22; torso.position.x = 0.07;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), skin); head.position.set(0.16, 1.66, 0);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.115, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), trousers); cap.position.copy(head.position); cap.position.y += 0.02;
-  gf.add(legs, torso, head, cap);
-  actors.golfer = gf;
-  actors.arm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 1, 6), shirt);
-  actors.club = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 6), steel);
+  const steel = new THREE.MeshLambertMaterial({ color: 0xb8bcc2 });
+  actors.club = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1, 6), steel);
   actors.head = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.07), new THREE.MeshLambertMaterial({ color: 0x23262b }));
-  for (const k of ['ball', 'shadow', 'tracer', 'aim', 'read', 'ring', 'golfer', 'arm', 'club', 'head']) { actors[k].visible = false; scene.add(actors[k]); }
+  actors.club.castShadow = true;
+  for (const k of ['ball', 'shadow', 'tracer', 'aim', 'read', 'ring', 'club', 'head']) { actors[k].visible = false; scene.add(actors[k]); }
+  buildGolferFigure();
+}
+
+// Stylised golfer assembled from primitives, parameterised by the chosen character's look.
+function buildGolferFigure() {
+  for (const k of ['golfer', 'armL', 'armR', 'hands']) if (actors[k]) { scene.remove(actors[k]); actors[k].traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
+  const L = golferById(settings.golfer).look, b = L.build;
+  const mat = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const skin = mat(L.skin), shirt = mat(L.shirt), trousers = mat(L.trousers), dark = mat(0x1b1b1e), white = mat(0xf7f7f2), hair = mat(L.hair), hatM = mat(L.hatColor);
+  const add = (parent, geo, m, x, y, z, sx, sy, sz) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); if (sx !== undefined) o.scale.set(sx, sy, sz); o.castShadow = true; parent.add(o); return o; };
+  const sphere = (r) => new THREE.SphereGeometry(r, 16, 12);
+  const gf = new THREE.Group();
+  for (const z of [-0.11 * b, 0.11 * b]) {
+    add(gf, new THREE.CylinderGeometry(0.085 * b, 0.06, 0.86, 10), trousers, 0, 0.47, z);
+    add(gf, new THREE.BoxGeometry(0.27, 0.08, 0.11), white, 0.05, 0.04, z);
+  }
+  add(gf, sphere(0.17), trousers, 0, 0.92, 0, b, 0.75, b * 1.2);
+  if (L.rear) for (const z of [-0.11, 0.11]) add(gf, sphere(0.19), trousers, -0.19, 0.9, z * b);
+  const tg = new THREE.Group();
+  tg.position.set(0, 0.95, 0);
+  tg.rotation.order = 'ZYX';
+  add(tg, new THREE.CylinderGeometry(0.2 * b, 0.17 * b, 0.56, 14), shirt, 0, 0.3, 0, 1, 1, 1.15);
+  if (L.belly) add(tg, sphere(0.21 * b), shirt, 0.1, 0.2, 0);
+  if (L.apron) add(tg, sphere(0.21 * b), white, 0.125, 0.19, 0, 1.0, 1.08, 0.78);
+  if (L.chest) for (const z of [-0.12, 0.12]) add(tg, sphere(0.125), L.apron ? white : shirt, 0.19, 0.43, z * b * 0.8);
+  add(tg, sphere(0.1), shirt, 0, 0.55, 0, 1, 0.8, 2.3 * b);
+  add(tg, new THREE.CylinderGeometry(0.05, 0.055, 0.1, 8), skin, 0, 0.63, 0);
+  add(tg, sphere(0.115), skin, 0.02, 0.76, 0);
+  add(tg, sphere(0.118), hair, -0.012, 0.775, 0, 1, 0.92, 1);
+  if (L.beard) add(tg, sphere(0.085), hair, 0.05, 0.705, 0, 1, 0.8, 1.05);
+  if (L.hat === 'cap') {
+    add(tg, new THREE.SphereGeometry(0.123, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), hatM, 0.02, 0.775, 0);
+    add(tg, new THREE.BoxGeometry(0.15, 0.014, 0.16), hatM, 0.15, 0.79, 0);
+  } else if (L.hat === 'toque') {
+    add(tg, new THREE.CylinderGeometry(0.105, 0.11, 0.14, 14), hatM, 0.02, 0.92, 0);
+    add(tg, sphere(0.16), hatM, 0.02, 1.04, 0, 1, 0.72, 1);
+  } else if (L.hat === 'headband') {
+    add(tg, new THREE.CylinderGeometry(0.121, 0.121, 0.036, 16, 1, true), hatM, 0.02, 0.8, 0);
+  }
+  gf.add(tg);
+  gf.scale.setScalar(L.height);
+  actors.golfer = gf; actors.torso = tg;
+  actors.armL = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.038, 1, 8), shirt);
+  actors.armR = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.038, 1, 8), shirt);
+  actors.hands = new THREE.Mesh(sphere(0.055), skin);
+  for (const k of ['golfer', 'armL', 'armR', 'hands']) { actors[k].visible = false; actors[k].castShadow = true; scene.add(actors[k]); }
 }
 const UP = new THREE.Vector3(0, 1, 0);
 function stretch(mesh, a, b) { // place a unit cylinder between two points
@@ -339,27 +477,35 @@ function stretch(mesh, a, b) { // place a unit cylinder between two points
   mesh.scale.set(1, len, 1);
   mesh.quaternion.setFromUnitVectors(UP, d.normalize());
 }
+const SH = new THREE.Vector3();
 function poseGolfer(ball, aimDeg, swingAngle, visible) {
-  for (const k of ['golfer', 'arm', 'club', 'head']) actors[k].visible = visible;
+  for (const k of ['golfer', 'armL', 'armR', 'hands', 'club', 'head']) actors[k].visible = visible;
   if (!visible) return;
+  actors.torso.visible = true;
+  const L = golferById(settings.golfer).look, h = L.height, b = L.build;
   const a = aimDeg * Math.PI / 180, side = settings.leftHanded ? -1 : 1;
-  const aim = new THREE.Vector3(Math.sin(a), 0, -Math.cos(a));           // target direction
-  const face = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(side); // golfer looks at the ball
-  const feet = ball.clone().addScaledVector(face, -0.95);
+  const face = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(side); // from the golfer toward the ball
+  const feet = ball.clone().addScaledVector(face, -(0.95 * h + 0.1 * (b - 1)));
   feet.y = heightAt(feet.x, -feet.z);
   actors.golfer.position.copy(feet);
   actors.golfer.rotation.y = Math.atan2(face.z, -face.x) + Math.PI; // local +X faces the ball
-  const shoulders = feet.clone().addScaledVector(face, 0.2); shoulders.y += 1.4;
-  const hands = feet.clone().addScaledVector(face, 0.42); hands.y += 0.88;
+  // Shoulders turn away from the target going back and through to face it at the finish.
+  actors.torso.rotation.set(0, Math.max(-1.25, Math.min(1.4, swingAngle * 0.3)) * side, -0.4);
+  actors.golfer.updateMatrixWorld(true);
+  const hands = feet.clone().addScaledVector(face, 0.42 * h + 0.1 * (b - 1)); hands.y += 0.86 * h;
   // The club rotates about the line from the golfer to the ball: back and up, then through.
   const shaft = ball.clone().sub(hands).applyAxisAngle(face, swingAngle * side);
-  const handsNow = hands.clone().addScaledVector(shaft, 0.12 * Math.min(1, Math.abs(swingAngle)));
+  const lift = Math.min(1, Math.abs(swingAngle) / 2.2);
+  const handsNow = hands.clone().addScaledVector(shaft, 0.1 * lift); handsNow.y += 0.42 * h * lift * lift;
   const tip = handsNow.clone().add(shaft);
-  stretch(actors.arm, shoulders, handsNow);
+  for (const [arm, z] of [[actors.armL, -0.2 * b], [actors.armR, 0.2 * b]]) {
+    SH.set(0.02, 0.52, z); actors.torso.localToWorld(SH);
+    stretch(arm, SH, handsNow);
+  }
+  actors.hands.position.copy(handsNow);
   stretch(actors.club, handsNow, tip);
   actors.head.position.copy(tip);
   actors.head.quaternion.copy(actors.club.quaternion);
-  void aim;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -394,6 +540,7 @@ function startCourse(kind, generate) {
   setTimeout(() => {
     game.kind = kind;
     pausedFrom = null;
+    applyGolfer(kind === 'round' && !!game.daily);
     if (kind === 'range') { core.ng_use_range(1); game.holes = 1; game.course = { name: 'Practice Range', par: 0, env: 0, weather: 0, code: '' }; }
     else {
       core.ng_use_range(0);
@@ -512,7 +659,7 @@ function onMove(e) {
   // Browsers can report one huge bogus movement as the pointer is captured or released; ignore that moment.
   if (now() - lockChangedAt < 0.12) return;
   if (game.mode === 'aim' && !buttonDown && pointerLocked) {
-    game.aim += e.movementX * (e.shiftKey ? 0.012 : 0.05);
+    game.aim += e.movementX * (e.shiftKey ? 0.012 : 0.05) * (game.club === PUTTER ? 0.35 : 1);
     game.previewDirty = true;
     return;
   }
@@ -667,6 +814,7 @@ function holeFinished(holed) {
   const strokes = holed ? s.strokes : Math.max(s.strokes, 10);
   game.card.push({ par: s.par, strokes, putts: s.putts, penalties: s.penalties, fairwayApplies: s.fairwayApplies, fairwayHit: s.fairwayHit, gir: s.gir, holed });
   game.mode = 'holeout';
+  updateHud();
   const name = holed ? cstr(core.ng_score_name(strokes, s.par)) : 'Picked up';
   flashBanner(name, holed ? strokes + ' on a par ' + s.par : 'Stroke limit reached: 10 recorded', 2400);
   setTimeout(() => {
@@ -698,7 +846,7 @@ function finishRound() {
   if (game.daily) entry.official = !rounds.some((r) => r.daily === game.daily && r.official);
   rounds.push(entry);
   store.set('rounds', rounds.slice(-300));
-  showMenu(() => roundSummaryMenu(entry));
+  showMenu((body) => roundSummaryMenu(body, entry));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -797,7 +945,7 @@ function slider(parent, label, min, max, step, value, fmt, onChange) {
   show(); l.appendChild(r); parent.appendChild(l);
 }
 
-function goMenu() { pausedFrom = null; game.mode = 'menu'; clearWorld(); for (const k in actors) if (actors[k].visible !== undefined) actors[k].visible = false; updateHud(); showMenu(mainMenu); }
+function goMenu() { pausedFrom = null; game.mode = 'menu'; clearWorld(); for (const k in actors) if (actors[k] && actors[k].isObject3D) actors[k].visible = false; updateHud(); showMenu(mainMenu); }
 
 function mainMenu(body, error) {
   game.mode = 'menu'; updateHud();
@@ -812,9 +960,30 @@ function mainMenu(body, error) {
     () => { game.daily = id; startCourse('round', () => core.ng_generate_daily(unix)); });
   button(body, 'Play a shared course', 'Enter a course code from a friend', () => showMenu(codeMenu));
   button(body, 'Practice Range', 'Learn the swing with every club; no score', () => { game.daily = null; startCourse('range'); });
+  const me = golferById(settings.golfer);
+  button(body, 'Golfer · ' + golferName(me) + ' (' + overall(me) + ' OVR)', 'Choose and rename your golfer', () => showMenu(golferMenu));
   button(body, 'Statistics', 'Your saved rounds on this device', () => showMenu(statsMenu));
   button(body, 'Settings', 'Swing mode, difficulty, sensitivity, units, graphics', () => showMenu((b) => settingsMenu(b, mainMenu)));
   button(body, 'How to play', '', () => showMenu(helpMenu));
+}
+
+function golferMenu(body) {
+  body.appendChild(el('h2', {}, 'Choose your golfer'));
+  for (const g of ROSTER) {
+    const stats = g.attr.map((v, i) => ATTR_NAMES[i] + ' ' + Math.round(50 + 49 * v)).join(' · ');
+    const b = button(body, (g.id === settings.golfer ? '✓ ' : '') + golferName(g) + ' · ' + overall(g) + ' OVR', g.blurb + '<br>' + stats, () => {
+      settings.golfer = g.id; saveSettings(); buildGolferFigure(); showMenu(golferMenu);
+    });
+    if (g.id === settings.golfer) b.style.borderColor = 'var(--accent)';
+  }
+  const cur = golferById(settings.golfer);
+  const l = el('label', {}, '<span>Name</span>');
+  const input = el('input', { type: 'text', maxLength: 24, value: golferName(cur) });
+  input.addEventListener('keydown', (e) => e.stopPropagation());
+  input.addEventListener('change', () => { const names = store.get('names', {}); const v = input.value.trim(); if (v) names[cur.id] = v; else delete names[cur.id]; store.set('names', names); });
+  l.appendChild(input); body.appendChild(l);
+  body.appendChild(el('p', { className: 'note' }, 'Attributes shrink or grow your mistakes and your clubhead speed; you still have to make the swing. The Daily Course is always played with standard attributes so scores are comparable.'));
+  button(body, 'Done', '', () => showMenu(mainMenu), 'primary');
 }
 
 const quick = Object.assign({ env: -1, diff: 1, tee: 1 }, store.get('quick', {}));
@@ -978,11 +1147,14 @@ function refreshAids() {
   actors.aim.visible = d < 3 || game.club === PUTTER;
   if (game.club === PUTTER) {
     if (d <= 1 && s.lie === SURF.Green) {              // green-reading aid
-      core.ng_putt_read();
-      const b = buf(6 + 900), m = b[5], rp = actors.readGeo.attributes.position;
-      for (let i = 0; i < m; i++) rp.setXYZ(i, b[6 + i * 3], b[8 + i * 3] + 0.03, -b[7 + i * 3]);
-      rp.needsUpdate = true; actors.readGeo.setDrawRange(0, m);
-      actors.read.visible = m > 1;
+      if (!game.puttRead) {
+        core.ng_putt_read();
+        const b = buf(6 + 900), m = b[5], rp = actors.readGeo.attributes.position;
+        for (let i = 0; i < m; i++) rp.setXYZ(i, b[6 + i * 3], b[8 + i * 3] + 0.03, -b[7 + i * 3]);
+        rp.needsUpdate = true; actors.readGeo.setDrawRange(0, m);
+        game.puttRead = { points: m };
+      }
+      actors.read.visible = game.puttRead.points > 1;
     }
     return;
   }
@@ -1027,7 +1199,7 @@ function updateCamera(dt, ball) {
     }
   } else {
     const putting = game.club === PUTTER;
-    const back = putting ? 3.2 : 6.5, up = putting ? 1.5 : 2.4, side = putting ? 0 : 0.5;
+    const back = putting ? 3.2 : 7.4, up = putting ? 1.5 : 2.9, side = putting ? 0 : 0.6;
     const cx = s.x - fx * back + fy * side, cy = s.y - fy * back - fx * side;
     pos = V(cx, cy, Math.max(heightAt(cx, cy) + up, s.z + up * 0.8));
     const ahead = putting ? Math.min(8, s.toPin + 1) : 45;
@@ -1070,7 +1242,7 @@ function frame(ms) {
       if (game.mode === 'swing') {
         const p = core.ng_swing_live_power();
         game.swingAngle = -Math.min(1.15, p) * 3.6;
-        setMeter(p, core.ng_swing_live_lateral() * 3, p > 1.02 ? 'Overswing!' : Math.round(Math.min(p, 1.1) * 100) + '%');
+        setMeter(p, core.ng_swing_live_lateral() * 3 * (settings.leftHanded ? -1 : 1), p > 1.02 ? 'Overswing!' : Math.round(Math.min(p, 1.1) * 100) + '%');
       }
     } else if (settings.swingMode === 'classic' && game.classic) {
       const c = game.classic;
@@ -1137,6 +1309,11 @@ function frame(ms) {
   poseGolfer(addr, game.aim, game.swingAngle, showGolfer && !game.overhead);
   if (world.flag) { const near = game.state.toPin < 2.5 && game.club === PUTTER && aiming; world.flag.visible = !near; world.pole.visible = !near; }
 
+  if (world.sun) { world.sun.target.position.copy(ball); world.sun.position.copy(ball).addScaledVector(SUN_DIR, 120); }
+  if (world.flag && world.flag.visible) {
+    const w = game.info[22];
+    world.flag.rotation.y = Math.PI / 2 - game.info[21] * Math.PI / 180 + Math.sin(ms * 0.006) * 0.18 * Math.min(1, 0.3 + w / 5);
+  }
   updateCamera(dt, ball);
   renderer.render(scene, camera);
 }
