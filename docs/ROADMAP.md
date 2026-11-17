@@ -10,7 +10,7 @@ tested, no in-engine implementation · **scaffold** = code written, never compil
 | Inspect environment | done (Linux cloud container: no Unreal, no Mac, no GPU) |
 | Verify Unreal Engine and macOS compatibility | **blocked** - needs a Mac with UE5 installed |
 | Project architecture (engine-free `GolfCore` + `NextGenGolf` game module) | done |
-| Create Unreal project | scaffold |
+| Create Unreal project (Windows and Mac targets) | scaffold |
 | Project compiles / launches in Unreal | **blocked** |
 | Mac rendering config, graphics presets | scaffold (values are unmeasured guesses) |
 | Raw mouse input path | scaffold |
@@ -29,7 +29,7 @@ tested, no in-engine implementation · **scaffold** = code written, never compil
 | Putting, cup capture, lip-outs, green read | core |
 | Scoring and rules (water, out of bounds, GIR, fairways) | core |
 | Cameras | todo |
-| **Milestone: one playable hole that feels good** | todo |
+| **Milestone: one playable hole that feels good** | playable in the browser build; feel not yet judged by a person |
 
 ## Phase 3 - Course experience
 18-hole hand-designed course, range, short-game area, scorecard UI, weather visuals: todo.
@@ -44,7 +44,7 @@ tested, no in-engine implementation · **scaffold** = code written, never compil
 | Share codes, Daily seed and countdown | core |
 | Rendering a generated hole in Unreal | todo |
 | Daily leaderboard, history, streaks; saving courses | todo |
-| **Gate: a human finishes a generated round** | todo |
+| **Gate: a human finishes a generated round** | a scripted browser session has; a human has not yet |
 
 ## Phase 5 - Chaos Mode
 todo. Only the separation hook exists (`GameRules`). Order: chaos director and event budget, meteors,
@@ -53,20 +53,16 @@ lava, one dinosaur (T-Rex), power shots, the rest.
 ## Phase 6 - Career and progression · Phase 7 - Multiplayer and social · Phase 8 - Polish
 todo.
 
+## Browser build (added in session 2)
+A complete, playable client on the same core: see STATUS.md. It is the fastest way to play and to tune
+the swing while the Unreal version is brought up. Core changes are shared by both.
+
 ## Next priorities, in order
-1. On a Mac with UE5: open the project, fix compile errors, confirm it builds and launches.
-2. Render one generated hole (heightfield mesh coloured by surface) with an address camera.
-3. Wire the mouse sampler to the swing, add the swing indicator, hit balls. Iterate on feel.
-4. Putting, hole-out, scorecard: the Phase 2 milestone.
+1. Human play-test of the browser build; tune swing sensitivity, tempo and difficulty from feedback.
+2. On a Windows PC or Mac with UE5: open the project, fix compile errors, confirm it builds and launches.
+3. Unreal: terrain material, flight and landing cameras, HUD, then parity with the browser build.
+4. Chaos Mode in the core, with tests proving traditional golf is unaffected.
 5. First frame-time measurements on real hardware; revise graphics presets from data.
 
 ## Known gaps and risks
-- The AI golfer scores far too low (about 8 under for nine holes). Its planner removes most of the
-  difficulty a human faces, so its scores say holes are *finishable*, not that they are well balanced.
-- Each generated hole has its own terrain tile; neighbouring holes do not share a continuous landscape.
-- Trees are simple cylinders to the physics. Wind is steady (no gusts).
-- Driver carry is about 9 yards short of the tour reference; other clubs are within 5.
-- Share codes carry seed, difficulty, environment, hazards, pins and tees - not custom wind, weather,
-  green speed or hole composition.
-- Left-handed play: only the input mirroring is tested, not shape naming or a full round.
-- Unreal Engine version is not chosen; it depends on the Mac and macOS version available.
+See "Known bugs and weaknesses" in STATUS.md.

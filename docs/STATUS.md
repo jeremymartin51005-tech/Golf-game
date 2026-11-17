@@ -1,82 +1,80 @@
-# Status report - end of first session (2026-11-17)
+# Status report (2026-11-17, second session)
 
 ## Summary
 
-The engine-independent simulation core is built and passes 37 automated tests. **Nothing is playable
-yet**: there is no Unreal build, no rendering, no UI, and nobody has swung a mouse at it. Phase 1 is
-blocked on a Mac with Unreal Engine 5; this session ran in a Linux cloud container with neither.
+**The game is playable today in a web browser** on Windows, Mac or Linux: download
+`Web/dist/NextGenGolf.html` and double-click it. It is a real game built on the tested simulation
+core, with the mouse swing, generated courses, putting, scoring and saved statistics.
 
-## Environment found
+**The Unreal Engine 5 version is still unbuilt.** No machine with Unreal has been connected, so the
+Unreal project has never been compiled. It now contains the glue for a first playable hole, but
+expect compile errors.
 
-Ubuntu 24.04, x86-64, 4 cores, 15 GB RAM, no GPU, about 31 GB free disk. g++ 13, clang, CMake, Ninja.
-No Unreal Engine (and no room or licence path to install it), no macOS, no attached computer.
+Nobody human has played either version yet. Everything below marked "tested" was exercised by
+automated tests, including a scripted browser session, not by a person judging how it feels.
 
-## What was implemented (all in `Source/GolfCore`, about 2,400 lines plus 800 lines of tests)
+## What is playable (browser build)
 
-- **Mouse swing analyser.** Streams raw mouse events through address, backswing, downswing and
-  impact. Produces power, clubhead-speed factor, club path, face angle, timing error, tempo ratio,
-  contact (pure/thin/fat) and plain-language feedback. Deterministic; no randomness anywhere.
-  Classic three-click and assisted swings feed the same pipeline. Four difficulty presets.
-- **Impact model.** Turns a swing into launch conditions per club, lie, shot type, swing style and
-  intended shape. Face-to-path sets the spin-axis tilt (D-plane), so draws, fades, hooks, slices,
-  pushes and pulls come out of the geometry.
-- **Ball flight.** RK4 integration with drag, spin lift, spin decay, wind profile, air density from
-  temperature and altitude; turf-deformation bounce model; spin-dependent check and release; rolling
-  with slope; eleven surface types; wetness; tree collisions; water and out-of-bounds detection.
-- **Putting.** Rolling on sloped greens calibrated to the stimpmeter definition; cup capture that
-  depends on pace and how much of the hole the ball catches; lip-outs; a green-reading solver.
-- **Clubs.** 17 clubs with distinct stock numbers; 14-club bag validation.
-- **Course generator.** Ten hole templates, six environments, four difficulties; fairways that widen
-  at landing zones; bunkers placed at dogleg corners, through the fairway and flanking greens with
-  the front left open; ponds and forced carries limited by difficulty; four tees; five pin positions;
-  heightfield terrain graded along the playing corridor; non-overlapping nine-hole routing.
-- **Validation.** Structural checks per hole and per course, then an AI golfer plays every hole with
-  the real physics and must hole out. Failing holes are redesigned, never shipped.
-- **Rules and scoring.** Stroke count, putts, penalties and drops, fairways, greens in regulation,
-  score names, scorecard totals.
-- **Seeds.** Checksummed share codes; Daily Course seed per UTC day with countdown.
-- **Unreal scaffold.** Project file, build rules, raw mouse sampler, shot component, graphics
-  presets, Mac config. Written blind; see below.
+- Natural mouse swing (hold, pull back, push through), plus classic 3-click and assisted swings.
+- Four swing difficulties; adjustable sensitivity, backswing length and tempo; left-handed play.
+- 14-club bag, caddie club suggestion, 12 shot types, draw/fade and trajectory control, four swing styles.
+- Putting with a green-reading line on the easier difficulties, lip-outs, progressive stroke power.
+- Random 9 (six environments, four course difficulties, four tees), Daily Course with one official
+  score per day and a countdown, shared course codes, practice range.
+- Four golfers to choose from and rename, with different attributes. The Daily Course ignores
+  attributes so scores are comparable.
+- Water and out-of-bounds penalties, 10-stroke limit per hole, scorecard, round summary, local
+  statistics (average, best, fairways, greens, putts, daily streak).
+- Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
+  Performance / Balanced / Quality graphics settings; frame-time display.
 
-## What is actually playable
-
-Nothing by a human. From a terminal you can generate and inspect courses, watch AI golfers play
-them, and print club distance tables (`CoreHarness/build/golfcli`).
-
-## Measurements (all from this Linux container: Intel Xeon 2.1 GHz, one thread)
+## What was tested, and how
 
 | What | Result |
 |---|---|
-| Unit tests | 37 of 37 pass, 15 s |
-| Courses generated in tests | 24 of 24 valid (every environment x difficulty), each within the 5-attempt limit the test enforces; the 7 printed by hand all succeeded on the first attempt |
-| Nine-hole generate + validate | about 400 ms |
-| Full driver shot on generated terrain | 0.73 ms (0.33 microseconds per 240 Hz step) |
-| Swing analysis | 0.04 microseconds per mouse event |
-| Same swing at 125 Hz vs 1000 Hz mouse | carry within 4 m, finish within 5 m |
-| 120 Hz vs 1000 Hz physics step | driver carry within 1 m |
+| Core unit tests | 42 of 42 pass |
+| Native (gcc, x86) vs WebAssembly (clang) | 12 generated courses identical |
+| Browser: real mouse events through the swing | Works (pull back, push through, strike; release early backs off) |
+| Browser: classic and assisted swings, club/shot keys, pause, settings | Work |
+| Browser: bad share code rejected, good code loads the same course as native | Works |
+| Browser: full nine-hole Daily round to the summary screen | Completed, 38 (+2) with scripted imperfect swings; saved as the official daily score |
+| Fuzzing: 3,000 garbage mouse streams, 500+ random shots on generated terrain, weakest golfers on the hardest courses | No crashes, no non-finite numbers, every round finishes |
 
-Stock carry against published tour launch-monitor averages (yards): driver 266 vs 275, 5-wood 232
-vs 230, 5-iron 193 vs 194, 7-iron 167 vs 172, 9-iron 147 vs 148, pitching wedge 136 vs 136.
+Bugs found and fixed this session: seeds produced different courses on different compilers; the round
+summary crashed; pause state leaked after quitting to the menu; capturing the mouse could be read
+as a swing; tap-in putts were cancelled as waggles; chip-ins were wrongly credited as greens in
+regulation; raised tees were cliff-like; left-handed path meter was mirrored.
 
-**Not measured, because it cannot be here:** frame rate, frame pacing, GPU load, memory, loading
-time, input latency, anything on Apple Silicon or Metal. The CPU figures above show the simulation
-is a negligible part of a frame budget; they say nothing about rendering.
+## Measurements
+
+CPU only, from a Linux cloud container (Intel Xeon 2.1 GHz, one thread): a full driver shot simulates in
+0.73 ms; a nine-hole course generates and validates in about 0.4 s natively and about 0.5 s in
+WebAssembly; the WebAssembly core is 190 KB and the whole game is one 1 MB file.
+
+**No frame-rate figure exists.** The only renderer available here was software WebGL in headless
+Chromium, which is not representative of any real computer. Turn on *Frame-time display* in
+Settings to see real numbers on your machine.
 
 ## What remains unfinished
 
-Everything outside the core: see [ROADMAP.md](ROADMAP.md). Most importantly the Unreal project has
-never been compiled, and the Priority 1 gate (the swing must *feel* good) has not been attempted.
+- Unreal version: never compiled; no materials, UI, audio or character assets.
+- Not built at all: the three hand-designed 18-hole courses, Career, Tournament and Challenge modes,
+  Chaos Mode, multiplayer, online leaderboards, course designer, replays.
+- Browser build is stylised low-poly, not the "modern sports game" visual target.
 
 ## Known bugs and weaknesses
 
-- AI golfer is unrealistically good (roughly 8 under par for nine holes as an "expert", about level
-  par as an "amateur"). It proves holes can be finished; it does not prove they are well balanced.
-- Driver carries about 9 yards short of the reference.
-- Unreal-side code will very likely need fixes on first compile.
-- Further items are listed under "Known gaps and risks" in the roadmap.
+- Swing feel is unassessed by a human; default sensitivity and tempo are educated guesses.
+- The AI golfer used for course validation is unrealistically good, so it proves holes are
+  finishable, not that they are well balanced.
+- Driver carry is about 9 yards short of the tour reference.
+- Each hole has its own terrain; neighbouring holes are not visible from one another.
+- Trees are cylinders to the physics; hitting one is abrupt. The tree-hit sound is not timed to the hit.
+- Share codes carry seed, difficulty, environment, hazards, pins and tees only.
+- Statistics live in the browser's local storage; clearing site data erases them.
 
 ## Next priorities
 
-1. Get the project onto a Mac with Unreal Engine 5; compile, fix, launch.
-2. Render one generated hole and hit a ball with the mouse.
-3. Iterate on swing feel with a human in the loop.
+1. A person plays the browser build and reports how the swing feels; tune from that.
+2. Connect a Windows PC or Mac with Unreal Engine 5; compile, fix and launch the Unreal project.
+3. Chaos Mode foundations in the core (event director, meteors, lava) with tests, then in the browser build.

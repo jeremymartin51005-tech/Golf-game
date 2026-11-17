@@ -32,46 +32,51 @@ void UGolfShotComponent::EndPlay(const EEndPlayReason::Type Reason)
 	Super::EndPlay(Reason);
 }
 
-void UGolfShotComponent::BeginSwing(const golf::ITerrain* Terrain, const golf::Conditions& Conditions, golf::ClubId Club,
-                                    const golf::ShotIntent& Intent, golf::Surface Lie, golf::Vec3 BallPosition, double AimDeg,
-                                    const golf::SwingSettings& Settings, const golf::PlayerAttributes& Attributes, golf::Cup Cup)
+void UGolfShotComponent::BeginSwing(golf::HolePlay* Play, golf::ClubId Club, const golf::ShotIntent& Intent, double AimDeg,
+                                    const golf::SwingSettings& Settings, const golf::PlayerAttributes& Attributes)
 {
-	ActiveTerrain = Terrain;
-	ActiveConditions = Conditions;
+	if (Play == nullptr || Play->holed() || bPlaying) { return; }
+	ActivePlay = Play;
 	ActiveClub = Club;
 	ActiveIntent = Intent;
-	ActiveLie = Lie;
-	ActiveBall = BallPosition;
 	ActiveAim = AimDeg;
+	ActiveSettings = Settings;
 	ActiveAttributes = Attributes;
-	ActiveCup = Cup;
 	Swing = golf::MouseSwing(Settings, Attributes);
 	bArmed = true;
-	bPlaying = false;
 	if (Sampler.IsValid()) { Sampler->bCapturing = true; }
+}
+
+void UGolfShotComponent::CancelSwing()
+{
+	bArmed = false;
+	if (Sampler.IsValid()) { Sampler->bCapturing = false; }
 }
 
 void UGolfShotComponent::Strike()
 {
-	bArmed = false;
-	if (Sampler.IsValid()) { Sampler->bCapturing = false; }
-	const golf::SwingResult& Result = Swing.result();
-	if (!Result.valid || ActiveTerrain == nullptr) { return; }
+	CancelSwing();
+	LastSwing = Swing.result();
+	if (!LastSwing.valid || ActivePlay == nullptr) { return; }
 
 	if (ActiveClub == golf::ClubId::Putter)
 	{
-		const golf::PuttLaunch Putt = golf::computePutt(Result, 6.0, ActiveAttributes);
-		Outcome = golf::simulatePutt(Putt.speed, ActiveBall, ActiveAim + Putt.azimuthDeg, *ActiveTerrain, ActiveConditions, ActiveCup);
+		const golf::PuttLaunch Putt = golf::computePutt(LastSwing, 6.0, ActiveAttributes);
+		Outcome = ActivePlay->playPutt(Putt.speed, ActiveAim + Putt.azimuthDeg);
 	}
 	else
 	{
-		const golf::Launch Launch = golf::computeLaunch(Result, ActiveClub, ActiveIntent, ActiveLie, ActiveAttributes, ActiveConditions.wetness);
-		Outcome = golf::simulateShot(Launch, ActiveBall, ActiveAim, *ActiveTerrain, ActiveConditions, ActiveCup);
+		golf::ShotIntent Intent = ActiveIntent;
+		if (!golf::shotTypeAllowed(Intent.type, ActiveClub, ActivePlay->lie())) { Intent.type = golf::ShotType::Normal; }
+		const golf::Launch Launch = golf::computeLaunch(LastSwing, ActiveClub, Intent, ActivePlay->lie(), ActiveAttributes,
+		                                                ActivePlay->conditions().wetness, ActiveSettings.leftHanded);
+		Outcome = ActivePlay->playShot(Launch, ActiveAim);
 	}
 	PlaybackTime = 0.0;
 	PlaybackIndex = 0;
 	bPlaying = Outcome.path.size() >= 2;
 	OnShotStruck.Broadcast(float(Outcome.carry));
+	if (!bPlaying) { OnBallAtRest.Broadcast(); }
 }
 
 void UGolfShotComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -82,7 +87,7 @@ void UGolfShotComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	{
 		Swing.tick(FPlatformTime::Seconds());
 		if (Swing.phase() == golf::SwingPhase::Done) { Strike(); }
-		else if (Swing.phase() == golf::SwingPhase::Cancelled) { Swing.reset(); } // backed off: re-address
+		else if (Swing.phase() == golf::SwingPhase::Cancelled) { Swing = golf::MouseSwing(ActiveSettings, ActiveAttributes); } // backed off
 	}
 
 	if (bPlaying)
@@ -97,6 +102,8 @@ void UGolfShotComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 		if (PlaybackTime >= Path.back().t)
 		{
 			bPlaying = false;
+			// After a penalty the ball is not where the path ended: trust the rules engine.
+			GetOwner()->SetActorLocation(ToUnreal(ActivePlay->ball()));
 			OnBallAtRest.Broadcast();
 		}
 	}

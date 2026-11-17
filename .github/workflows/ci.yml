@@ -1,0 +1,22 @@
+name: core
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test the simulation core
+        run: |
+          cmake -S CoreHarness -B CoreHarness/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build CoreHarness/build -j
+          CoreHarness/build/golf_tests
+      - name: Build the browser game
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld wasi-libc libc++-18-dev-wasm32 libc++abi-18-dev-wasm32 libclang-rt-18-dev-wasm32
+          Web/build_wasm.sh
+          python3 Web/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NextGenGolf-browser
+          path: Web/dist/NextGenGolf.html
