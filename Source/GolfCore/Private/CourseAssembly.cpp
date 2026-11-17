@@ -89,10 +89,28 @@ std::string courseName(Rng& rng, Environment e) {
         {"Mesa", "Canyon", "Arroyo", "Springs", "Butte"},      // Desert
         {"Links", "Strand", "Burn", "Warren", "Sands"},        // Links
     };
-    return std::string(first[rng.rangeInt(0, 15)]) + " " + second[int(e)][rng.rangeInt(0, 4)];
+    // One draw per statement: argument evaluation order differs between compilers, and a shared seed
+    // must produce the same course everywhere.
+    int a = rng.rangeInt(0, 15);
+    int b = rng.rangeInt(0, 4);
+    return std::string(first[a]) + " " + second[int(e)][b];
 }
 
 } // namespace
+
+uint64_t courseFingerprint(const Course& c) {
+    uint64_t h = 1469598103934665603ULL;
+    auto mix = [&](double v) { h ^= uint64_t(int64_t(std::llround(v * 100.0))); h *= 1099511628211ULL; };
+    for (const HoleLayout& hole : c.holes) {
+        mix(hole.par); mix(hole.lengthM); mix(hole.pin().x); mix(hole.pin().y); mix(hole.worldHeadingDeg);
+        mix(double(hole.bunkers.size())); mix(double(hole.water.size())); mix(double(hole.trees.size()));
+        for (const Bunker& b : hole.bunkers) { mix(b.shape.c.x); mix(b.shape.c.y); }
+        for (size_t i = 0; i < hole.heights.size(); i += 97) mix(hole.heights[i]);
+    }
+    mix(c.conditions.wind.speed); mix(c.conditions.wind.headingDeg); mix(c.conditions.stimpFeet);
+    for (char ch : c.name) mix(ch);
+    return h;
+}
 
 Course generateCourse(const CourseConfig& cfgIn) {
     CourseConfig cfg = cfgIn;

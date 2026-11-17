@@ -396,22 +396,26 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg) 
         int inside = std::fabs(bend1) > 12 ? (bend1 > 0 ? 1 : -1) : -waterSide;
         // Inside-corner bunker: the bold line shortens the hole but must carry it.
         if (rng.chance(std::min(1.0, 0.75 * haz)))
-            addBunker(lz + Vec2{inside * (hw + 5.0), -rng.range(4, 18)}, rng.range(6, 9), rng.range(9, 14), rng.range(-15, 15), BunkerKind::Fairway);
+        { double back = rng.range(4, 18), rx = rng.range(6, 9), ry = rng.range(9, 14), rot = rng.range(-15, 15);
+            addBunker(lz + Vec2{inside * (hw + 5.0), -back}, rx, ry, rot, BunkerKind::Fairway); }
         // Through-the-fairway bunker: catches the drive that is too long or bails out wide.
         if (rng.chance(std::min(1.0, 0.55 * haz)))
-            addBunker(lz + Vec2{-inside * (hw + 4.0), rng.range(14, 30)}, rng.range(6, 9), rng.range(8, 12), rng.range(-15, 15), BunkerKind::Fairway);
+        { double fwd = rng.range(14, 30), rx = rng.range(6, 9), ry = rng.range(8, 12), rot = rng.range(-15, 15);
+            addBunker(lz + Vec2{-inside * (hw + 4.0), fwd}, rx, ry, rot, BunkerKind::Fairway); }
         if (par == 5) {
             Vec2 lz2 = h.landingZones[1].pos;
             Vec2 d2 = (h.centerline[2] - h.centerline[1]).normalized();
             int side = rng.chance(0.5) ? 1 : -1;
             if (rng.chance(std::min(1.0, 0.7 * haz)))   // squeezes the lay-up
-                addBunker(lz2 - d2 * rng.range(0, 20) + d2.perp() * (side * (hw + 4.0)), rng.range(6, 9), rng.range(8, 12), rad2deg(std::atan2(d2.x, d2.y)), BunkerKind::Fairway);
+            { double back = rng.range(0, 20), rx = rng.range(6, 9), ry = rng.range(8, 12);
+                addBunker(lz2 - d2 * back + d2.perp() * (side * (hw + 4.0)), rx, ry, rad2deg(std::atan2(d2.x, d2.y)), BunkerKind::Fairway); }
         }
         if (h.tmpl == HoleTemplate::Par4Short) {
             // The drivable par 4 defends itself 30-50 m short of the green.
-            for (int side : {-1, 1})
-                addBunker(h.green.shape.c - approachDir * rng.range(30, 48) + approachDir.perp() * (side * rng.range(12, 20)),
-                          rng.range(5, 8), rng.range(6, 9), approachHeading, BunkerKind::Fairway);
+            for (int side : {-1, 1}) {
+                double back = rng.range(30, 48), wide = rng.range(12, 20), rx = rng.range(5, 8), ry = rng.range(6, 9);
+                addBunker(h.green.shape.c - approachDir * back + approachDir.perp() * (side * wide), rx, ry, approachHeading, BunkerKind::Fairway);
+            }
         }
     }
     {
@@ -475,7 +479,8 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg) 
             }
             Vec2 dir = (h.centerline[seg] - h.centerline[seg - 1]).normalized();
             if (s > L) base = base + dir * (s - L);
-            Vec2 p = base + dir.perp() * (side * (h.fairwayHalfWidth * 1.1 + rng.range(13, 34))) + dir * rng.range(-6, 6);
+            double wide = rng.range(13, 34), drift = rng.range(-6, 6);
+            Vec2 p = base + dir.perp() * (side * (h.fairwayHalfWidth * 1.1 + wide)) + dir * drift;
             Tree t{p, rng.range(2.5, 4.5), rng.range(9, 16)};
             Surface sf = h.surface(p);
             if (sf != Surface::Rough && sf != Surface::DeepRough) continue;

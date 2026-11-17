@@ -107,6 +107,10 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg);
 ValidationReport validateHole(const HoleLayout& h, const CourseConfig& cfg, const Conditions& cond, bool runBot = true);
 ValidationReport validateCourse(const Course& c, bool runBot = true);
 
+// Hash of everything that defines a course (layout, terrain to the centimetre, conditions). Two builds
+// that agree on this produced the same course.
+uint64_t courseFingerprint(const Course& c);
+
 // Shareable codes: "R9-XXXX-XXXX-XXXX-XXXX" carries the seed and the layout-defining settings.
 std::string encodeShareCode(const CourseConfig& cfg);
 bool decodeShareCode(const std::string& code, CourseConfig* out);

@@ -78,6 +78,14 @@ static void printCourse(const Course& c, bool play) {
 int main(int argc, char** argv) {
     if (argc > 1 && !std::strcmp(argv[1], "distances")) { distances(); return 0; }
     if (argc > 1 && !std::strcmp(argv[1], "bench")) { bench(); return 0; }
+    if (argc > 1 && !std::strcmp(argv[1], "fingerprints")) { // compared against the WebAssembly build
+        for (int i = 0; i < 12; ++i) {
+            CourseConfig cfg; cfg.seed = 9000 + uint64_t(i) * 7; cfg.environment = Environment(i % 6); cfg.difficulty = Difficulty(i % 4);
+            Course c = generateCourse(cfg);
+            std::printf("%d %016llx %s\n", i, (unsigned long long)courseFingerprint(c), c.name.c_str());
+        }
+        return 0;
+    }
     if (argc > 2 && !std::strcmp(argv[1], "course")) {
         CourseConfig cfg;
         if (!decodeShareCode(argv[2], &cfg)) {
