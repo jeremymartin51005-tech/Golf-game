@@ -1,4 +1,4 @@
-# Status report (2026-11-17, third session)
+# Status report (2026-11-17, fourth session)
 
 ## Summary
 
@@ -28,6 +28,25 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Golfer, spin and graphics update (fourth session)
+
+- **Spin control (real physics).** A strike-point control (`↑`/`↓`, shown as a ball with a red dot in
+  the shot panel) changes spin rate and launch in the core impact model. Wedges have full authority,
+  irons less, the driver least, and a thin strike loses most of the extra spin. Low spin releases and
+  runs; maximum backspin checks, and a full wedge onto a soft green can spin back (about 6 m at the
+  extreme). Two new tests cover this.
+- **Articulated golfer.** Jointed body (pelvis, two-part spine, neck, head with face features, arms
+  and legs with IK, shoes, gloved lead hand) driven by swing kinematics: hip and shoulder turn, spine
+  tilt, wrist hinge and release, weight shift, head staying down through impact, trail heel rising
+  in the finish, and a putting posture and stroke. Proportions and outfits differ per golfer. It is a
+  stylised procedural figure, not a scanned or motion-captured character.
+- **Graphics.** Post-processing on Balanced and Quality (HDR, bloom, filmic tone mapping, colour grade,
+  vignette); five times of day (morning, midday, afternoon, sunset, evening) changing sun angle,
+  colour, sky and shadows; fuller, smooth-shaded trees with baked shading; woodland belts beyond the
+  boundary; a cloth flag that waves; a broadcast-style putting camera beside the golfer.
+- **Swing analysis.** After each full shot the result card draws the club path and face angle
+  against the target line, next to ball speed, launch, spin and apex.
+
 ## Terrain and graphics update (third session)
 
 - **Greens are contoured ground, not decoration.** Each green has its own 0.5 m heightfield with an
@@ -49,9 +68,9 @@ automated tests, including a scripted browser session, not by a person judging h
 
 | What | Result |
 |---|---|
-| Core unit tests | 45 of 45 pass (new: green relief, puttable and spread pins, fairway roll, seamless green patch) |
+| Core unit tests | 47 of 47 pass (new this session: spin control, spin-back) |
 | Native (gcc, x86) vs WebAssembly (clang) | 12 generated courses identical |
-| Browser: real mouse events through the swing | Works (pull back, push through, strike; release early backs off) |
+| Browser: real pointer events at a mouse's report rate through the swing | Works (pull back, push through, strike; release early backs off). In this container the software renderer blocks the page for ~100 ms per frame, so this test skips drawing while it streams input |
 | Browser: classic and assisted swings, club/shot keys, pause, settings | Work |
 | Browser: bad share code rejected, good code loads the same course as native | Works |
 | Browser: full nine-hole Daily round to the summary screen | Completed, 38 (+2) with scripted imperfect swings; saved as the official daily score |

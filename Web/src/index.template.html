@@ -15,7 +15,8 @@
   #hudHole .big { font-size:22px; font-weight:600; letter-spacing:.2px; }
   #hudWind { top:14px; right:14px; text-align:center; width:120px; }
   #windArrow { width:54px; height:54px; margin:2px auto; transition:transform .25s; }
-  #hudShot { bottom:14px; left:14px; min-width:250px; }
+  #hudShot { bottom:14px; left:14px; min-width:270px; }
+  #hudShot .club { padding-right:52px; }
   #hudShot .club { font-size:20px; font-weight:600; }
   #hudShot .row { display:flex; justify-content:space-between; gap:18px; color:var(--dim); }
   #hudShot .row b { color:var(--ink); font-weight:600; }
@@ -77,6 +78,13 @@
   <div class="row"><span>Lie</span><b id="hLie"></b></div>
   <div class="row"><span>Shot</span><b id="hType"></b></div>
   <div class="row"><span>Shape</span><b id="hShape"></b></div>
+  <div class="row" style="align-items:center"><span>Spin</span><b id="hSpin"></b></div>
+  <svg id="strike" viewBox="0 0 40 40" width="46" height="46" style="position:absolute;right:12px;top:10px">
+    <defs><radialGradient id="ballg" cx="40%" cy="35%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#c9cdd2"/></radialGradient></defs>
+    <circle cx="20" cy="20" r="17" fill="url(#ballg)" stroke="rgba(0,0,0,.35)"/>
+    <line x1="20" y1="5" x2="20" y2="35" stroke="rgba(0,0,0,.15)"/><line x1="5" y1="20" x2="35" y2="20" stroke="rgba(0,0,0,.15)"/>
+    <circle id="strikeDot" cx="20" cy="20" r="4" fill="#d8342a"/>
+  </svg>
 </div>
 <div id="hudHelp" class="hud"></div>
 <div id="meter" class="hud" style="display:none">
@@ -92,6 +100,7 @@
 <div id="ui" class="overlay"><div class="menu" id="uiBody"></div></div>
 
 <script>/*__THREE__*/</script>
+<script>/*__EXTRA__*/</script>
 <script>window.GOLF_WASM_B64 = "/*__WASM__*/";</script>
 <script>/*__GAME__*/</script>
 </body>

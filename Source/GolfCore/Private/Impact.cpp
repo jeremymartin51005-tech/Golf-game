@@ -91,9 +91,18 @@ Launch computeLaunch(const SwingResult& sw, ClubId club, const ShotIntent& inten
     double launch = c.launchDeg * st.launchMult + st.launchDelta + traj * 3.5;
     if (sw.contact == Contact::Thin) launch *= 0.4 + 0.6 * q;
     if (sw.contact == Contact::Fat) launch += 2.0;
+    // Spin control: how much the player can change spin depends on the club and on striking it cleanly.
+    double spinCtl = clampd(intent.spin, -1.0, 1.0);
+    static const double spinAuthority[] = {0.45, 0.55, 0.55, 0.6, 1.0, 1.0}; // driver, wood, hybrid, iron(scaled below), wedge
+    double auth = c.cls == ClubClass::Iron ? 0.8 : spinAuthority[int(c.cls) < 5 ? int(c.cls) : 0];
+    if (c.cls == ClubClass::Wedge) auth = 1.0;
+    double effSpin = spinCtl * auth * (0.4 + 0.6 * clampd(sw.contactQuality, 0.0, 1.0));
+    launch -= 1.6 * effSpin;               // trapping the ball for spin flights it a touch lower
+    L.ballSpeed *= 1.0 - 0.025 * std::max(0.0, effSpin);
     L.launchDeg = clampd(launch, 1.0, 62.0);
 
-    L.spinRpm = c.spinRpm * st.spinMult * headFrac * lieSpin * contactSpin * (1.0 + 0.12 * traj) * (1.0 - 0.15 * clampd(wetness, 0, 1));
+    L.spinRpm = c.spinRpm * st.spinMult * headFrac * lieSpin * contactSpin * (1.0 + 0.12 * traj) * (1.0 - 0.15 * clampd(wetness, 0, 1))
+              * (1.0 + 0.45 * effSpin);
 
     // D-plane: the spin axis tilts by how far the face points away from the path, relative to spin loft.
     double spinLoft = c.spinLoftDeg * clampd(L.launchDeg / std::max(1.0, c.launchDeg), 0.5, 1.6);

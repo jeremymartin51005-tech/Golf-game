@@ -26,6 +26,10 @@ struct ShotIntent {
     SwingStyle style = SwingStyle::Full;
     double curve = 0;
     double trajectory = 0;
+    // Strike point on the ball, as chosen in the shot menu: -1 = top of the ball (low spin, ball
+    // releases and runs), +1 = bottom of the ball (maximum backspin, ball checks or spins back).
+    // Strongest with wedges, weakest with the driver; needs clean contact to work.
+    double spin = 0;
 };
 
 struct Launch {

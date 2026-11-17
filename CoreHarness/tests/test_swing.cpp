@@ -180,3 +180,44 @@ TEST(lie_affects_the_shot) {
     CHECK(carry(Surface::Sand) < carry(Surface::Fairway));
     CHECK(carry(Surface::DeepRough, ShotType::Recovery) > carry(Surface::DeepRough) * 0.9);
 }
+
+TEST(spin_control_changes_spin_and_what_the_ball_does_on_the_green) {
+    SwingSettings s = sim();
+    SwingResult sw = runSwing(synthesizeSwing({}, s), s, kPro);
+    FlatTerrain green(Surface::Green);
+    auto shot = [&](ClubId club, double spin, ShotType t) {
+        ShotIntent in; in.spin = spin; in.type = t;
+        Launch L = computeLaunch(sw, club, in, Surface::Fairway, kPro);
+        return std::make_pair(L, simulateShot(L, {0, 0, 0}, 0, green, Conditions{}));
+    };
+    auto [lo, oLo] = shot(ClubId::SandWedge, -1, ShotType::Normal);
+    auto [mid, oMid] = shot(ClubId::SandWedge, 0, ShotType::Normal);
+    auto [hi, oHi] = shot(ClubId::SandWedge, 1, ShotType::Normal);
+    CHECK(hi.spinRpm > mid.spinRpm * 1.35 && lo.spinRpm < mid.spinRpm * 0.65);
+    double rollLo = oLo.total - oLo.carry, rollMid = oMid.total - oMid.carry, rollHi = oHi.total - oHi.carry;
+    CHECK(rollLo > rollMid + 1.0);          // low spin releases
+    CHECK(rollHi < rollMid - 0.5);          // max backspin checks up (or spins back)
+    // Wedges have far more authority over spin than the driver.
+    auto [dLo, dLoO] = shot(ClubId::Driver, -1, ShotType::Normal);
+    auto [dHi, dHiO] = shot(ClubId::Driver, 1, ShotType::Normal);
+    double wedgeRange = hi.spinRpm / lo.spinRpm, driverRange = dHi.spinRpm / dLo.spinRpm;
+    CHECK(wedgeRange > driverRange * 1.5);
+    // Spin needs clean contact: a thin strike gets less of it.
+    SyntheticSwing thinP; thinP.stopShortFrac = 0.3;
+    SwingResult thin = runSwing(synthesizeSwing(thinP, s), s, kPro);
+    ShotIntent in; in.spin = 1;
+    ShotIntent none;
+    double thinGain = computeLaunch(thin, ClubId::SandWedge, in, Surface::Fairway, kPro).spinRpm / computeLaunch(thin, ClubId::SandWedge, none, Surface::Fairway, kPro).spinRpm;
+    CHECK(thinGain < hi.spinRpm / mid.spinRpm);
+}
+
+TEST(spin_back_is_possible_with_a_full_wedge_onto_a_soft_green) {
+    SwingSettings s = sim();
+    SwingResult sw = runSwing(synthesizeSwing({}, s), s, kPro);
+    FlatTerrain green(Surface::Green);
+    Conditions soft; soft.wetness = 0.4;
+    ShotIntent in; in.spin = 1;
+    ShotOutcome o = simulateShot(computeLaunch(sw, ClubId::LobWedge, in, Surface::Fairway, kPro), {0, 0, 0}, 0, green, soft);
+    std::printf("    lob wedge max spin: carry %.1f m, total %.1f m (%+.2f m after landing)\n", o.carry, o.total, o.total - o.carry);
+    CHECK(o.total - o.carry < 0.5);
+}

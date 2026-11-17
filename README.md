@@ -12,6 +12,7 @@ A golf simulator with a mouse-controlled swing and procedurally generated course
 |---|---|
 | Mouse / `A` `D` | Aim |
 | `W` `S` or wheel | Change club |
+| `↑` `↓` | Spin: strike point higher (topspin, more roll) or lower (backspin, checks and can spin back) |
 | `Q` `E` | Shot type (punch, pitch, chip, flop, bunker, stinger ...) |
 | `Z` `X` | Draw / fade |
 | `C` `V` | Lower / higher flight |
@@ -29,7 +30,7 @@ local statistics. See [docs/STATUS.md](docs/STATUS.md) for exactly what exists a
 
 | Path | What it is | Verified? |
 |---|---|---|
-| `Source/GolfCore/` | Engine-independent simulation: swing analysis, impact, ball flight, putting, clubs, course generation and validation, rules, scoring, AI golfer, Daily seed, share codes | 45 automated tests; native and WebAssembly builds generate identical courses |
+| `Source/GolfCore/` | Engine-independent simulation: swing analysis, impact, ball flight, putting, clubs, course generation and validation, rules, scoring, AI golfer, Daily seed, share codes | 47 automated tests; native and WebAssembly builds generate identical courses |
 | `Web/` | Browser game: three.js renderer and UI around the core compiled to WebAssembly | Played end to end by automated browser tests (headless Chromium) |
 | `CoreHarness/` | CMake build, tests and `golfcli` tool for the core | Yes |
 | `Source/NextGenGolf/`, `Config/`, `NextGenGolf.uproject` | Unreal Engine 5 project for the downloadable version (Windows and Mac) | **No. Never compiled or opened in Unreal** |

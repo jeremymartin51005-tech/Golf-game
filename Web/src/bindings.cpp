@@ -55,8 +55,11 @@ Conditions condFor(int i) {
     return gCourse.conditionsForHole(i);
 }
 
+double gSpin = 0;   // strike point from the shot menu; applies to every full shot until changed
+
 ShotIntent makeIntent(int type, int style, double curve, double traj) {
     ShotIntent in;
+    in.spin = gSpin;
     in.type = ShotType(int(clampd(type, 0, int(ShotType::Count) - 1)));
     in.style = SwingStyle(int(clampd(style, 0, 3)));
     in.curve = curve;
@@ -107,6 +110,7 @@ int finishGenerate() {
 extern "C" {
 
 double* EXPORT(ng_buf)() { return gBuf; }
+void EXPORT(ng_set_spin)(double spin) { gSpin = clampd(spin, -1.0, 1.0); }
 char* EXPORT(ng_strbuf)() { return gStr; }
 
 // Created-golfer attributes, each 0..1 (0.5 = average). They scale mistakes and speed; they never hit the shot.
