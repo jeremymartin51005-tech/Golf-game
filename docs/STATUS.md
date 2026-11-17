@@ -48,7 +48,7 @@ them, and print club distance tables (`CoreHarness/build/golfcli`).
 | What | Result |
 |---|---|
 | Unit tests | 37 of 37 pass, 15 s |
-| Courses generated in tests | 24 of 24 valid (every environment x difficulty), plus about 20 more by hand; all on the first attempt |
+| Courses generated in tests | 24 of 24 valid (every environment x difficulty), each within the 5-attempt limit the test enforces; the 7 printed by hand all succeeded on the first attempt |
 | Nine-hole generate + validate | about 400 ms |
 | Full driver shot on generated terrain | 0.73 ms (0.33 microseconds per 240 Hz step) |
 | Swing analysis | 0.04 microseconds per mouse event |
