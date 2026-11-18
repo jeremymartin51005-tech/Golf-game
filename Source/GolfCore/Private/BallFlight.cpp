@@ -85,13 +85,44 @@ ShotOutcome run(State st, double aimDeg, double startDirDeg, const ITerrain& ter
             Surface surf = terrain.surface(xy);
             if (surf != Surface::Water && surf != Surface::OutOfBounds) lastDry = {xy.x, xy.y, h};
 
-            // Trees and other solid obstacles.
-            double obs = terrain.obstacleHeight(xy);
-            if (obs > 0 && st.pos.z - h < obs && st.pos.z - h > 0.3 && t - lastObstacleT > 0.3) {
-                lastObstacleT = t;
-                out.hitObstacle = true;
-                st.vel = Vec3{st.vel.x * 0.25, st.vel.y * 0.25, st.vel.z > 0 ? st.vel.z * 0.25 : st.vel.z};
-                st.omega = st.omega * 0.3;
+            // Trees: a solid trunk the ball ricochets off, and a crown of branches and leaves that
+            // slows and deflects it the longer it stays inside (a clipped edge barely matters,
+            // a ball through the middle drops out of the sky).
+            Vec2 tc; double tr = 0, th = 0;
+            if (terrain.treeAt(xy, &tc, &tr, &th)) {
+                double above = st.pos.z - h;
+                Vec2 off = xy - tc;
+                double d = off.length();
+                const double trunkR = 0.28;
+                if (above > 0 && above < th * 0.55 && d < trunkR) {
+                    if (t - lastObstacleT > 0.05) {
+                        lastObstacleT = t;
+                        if (!out.hitObstacle) out.obstaclePoint = st.pos;
+                        out.hitObstacle = out.hitTrunk = true;
+                        Vec2 nrm = d > 1e-6 ? off * (1.0 / d) : Vec2{-st.vel.x, -st.vel.y}.normalized();
+                        Vec2 vh{st.vel.x, st.vel.y};
+                        double vn = vh.dot(nrm);
+                        if (vn < 0) {
+                            Vec2 refl = vh - nrm * (vn * 1.45);            // restitution ~0.45 off bark
+                            st.vel = {refl.x * 0.8, refl.y * 0.8, st.vel.z * 0.7};
+                            st.omega = st.omega * 0.4;
+                            st.pos = {tc.x + nrm.x * (trunkR + 0.01), tc.y + nrm.y * (trunkR + 0.01), st.pos.z};
+                        }
+                    }
+                } else if (above > th * 0.3 && above < th) {
+                    // Inside the crown: thicker toward the centre.
+                    double density = 1.0 - clampd(d / tr, 0.0, 1.0);
+                    double k = (3.0 + 9.0 * density) * dt;
+                    if (!out.hitObstacle) { out.obstaclePoint = st.pos; out.hitObstacle = true; }
+                    // Deterministic twig deflections, different for every tree and every point in it.
+                    double hsh = std::sin(tc.x * 12.9898 + tc.y * 78.233 + std::floor(above * 3.0) * 37.719) * 43758.5453;
+                    double jitter = (hsh - std::floor(hsh)) - 0.5;
+                    Vec2 vh{st.vel.x, st.vel.y};
+                    vh = vh.rotated(jitter * 1.2 * k);
+                    double keep = std::exp(-k);
+                    st.vel = {vh.x * keep, vh.y * keep, st.vel.z * (st.vel.z > 0 ? keep : 1.0)};
+                    st.omega = st.omega * std::exp(-2.0 * k);
+                }
             }
 
             if (st.pos.z <= h) {
@@ -105,7 +136,21 @@ ShotOutcome run(State st, double aimDeg, double startDirDeg, const ITerrain& ter
                     out.landingAngleDeg = rad2deg(std::atan2(-st.vel.z, hs));
                     out.curveM = (st.pos.xy() - out.start.xy()).dot(startDir.perp());
                 }
-                if (surf == Surface::Water) { finishAt(RestReason::Water); break; }
+                if (surf == Surface::Water) {
+                    // A fast, shallow ball skips off water like a flat stone; anything else goes in.
+                    double hs = Vec2{st.vel.x, st.vel.y}.length();
+                    double angle = rad2deg(std::atan2(-st.vel.z, std::max(hs, 1e-6)));
+                    out.splashes.push_back(st.pos);
+                    if (hs > 18.0 && angle < 12.0 && out.waterSkips < 4) {
+                        ++out.waterSkips;
+                        st.vel = {st.vel.x * 0.62, st.vel.y * 0.62, -st.vel.z * 0.45 + 0.6};
+                        st.omega = st.omega * 0.5;
+                        st.pos.z = h + 0.02;
+                        continue;
+                    }
+                    finishAt(RestReason::Water);
+                    break;
+                }
                 if (surf == Surface::OutOfBounds) { finishAt(RestReason::OutOfBounds); break; }
                 if (cup.present && (xy - cup.pos).length() < 0.045) { st.pos = {cup.pos.x, cup.pos.y, h}; finishAt(RestReason::Holed); break; }
 
@@ -183,8 +228,20 @@ ShotOutcome run(State st, double aimDeg, double startDirDeg, const ITerrain& ter
             st.pos += st.vel * dt;
             st.pos.z = terrain.height(st.pos.xy());
 
+            {   // A rolling ball that runs into a trunk bounces off it.
+                Vec2 tc; double tr = 0, th = 0;
+                if (terrain.treeAt(st.pos.xy(), &tc, &tr, &th)) {
+                    Vec2 off = st.pos.xy() - tc;
+                    double d = off.length();
+                    if (d < 0.28 && d > 1e-6) {
+                        Vec2 nrm = off * (1.0 / d), vh{st.vel.x, st.vel.y};
+                        double vn = vh.dot(nrm);
+                        if (vn < 0) { Vec2 r = vh - nrm * (vn * 1.4); st.vel = {r.x * 0.7, r.y * 0.7, 0}; out.hitObstacle = out.hitTrunk = true; }
+                    }
+                }
+            }
             Surface ns = terrain.surface(st.pos.xy());
-            if (ns == Surface::Water) { finishAt(RestReason::Water); break; }
+            if (ns == Surface::Water) { out.splashes.push_back(st.pos); finishAt(RestReason::Water); break; }
             if (ns == Surface::OutOfBounds) { finishAt(RestReason::OutOfBounds); break; }
             lastDry = st.pos;
 

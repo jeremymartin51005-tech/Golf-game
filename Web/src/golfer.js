@@ -148,6 +148,7 @@ class GolferRig {
     p.clubHead = add(new THREE.BoxGeometry(1, 1, 1), this.mat.head);
     this.club = 'iron';
     this.time = 0;
+    this.jiggle = {};            // per-part spring followers for secondary motion
   }
 
   dispose(scene) {
@@ -158,9 +159,27 @@ class GolferRig {
 
   setVisible(v) { this.group.visible = v; }
 
+  // Underdamped spring follower: returns how far the jiggling part trails its rest position.
+  spring(key, target, dt, stiffness, damping, maxOffset) {
+    let j = this.jiggle[key];
+    if (!j || !dt || dt > 0.1) { j = this.jiggle[key] = { p: target.clone(), v: new THREE.Vector3() }; return new THREE.Vector3(); }
+    const steps = Math.max(1, Math.ceil(dt / 0.004));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      const acc = target.clone().sub(j.p).multiplyScalar(stiffness).addScaledVector(j.v, -damping);
+      j.v.addScaledVector(acc, h);
+      j.p.addScaledVector(j.v, h);
+    }
+    const off = j.p.clone().sub(target);
+    j.last = off.length();
+    if (off.length() > maxOffset) { off.setLength(maxOffset); j.p.copy(target).add(off); }
+    return off;
+  }
+
   // ball: Vector3 at the ball's centre. aimDeg: sim heading. theta: club rotation in the swing plane
   // (negative = backswing, 0 = impact, positive = follow-through). kind: 'driver' | 'wood' | 'iron' | 'wedge' | 'putter'.
-  pose(ball, aimDeg, theta, kind, leftHanded, groundAt, dt) {
+  pose(ball, aimDeg, theta, kind, leftHanded, groundAt, dtIn) {
+    const dt = dtIn || 0;
     this.time += dt || 0;
     const L = this.look, H = 1.8 * L.height, b = L.build, P = this.parts;
     const lh = leftHanded ? -1 : 1;
@@ -298,9 +317,13 @@ class GolferRig {
       // Fuller, rounder seat: two lobes set high on the hips and projecting back, with a centre fill so
       // the silhouette reads as one smooth curve from the waist to the thighs.
       const k = L.rear;
-      for (const [m, sgn] of [[P.rearL, 1], [P.rearR, -1]]) {
+      for (const [m, sgn, key] of [[P.rearL, 1, 'L'], [P.rearR, -1, 'R']]) {
         const c = pelvis.clone().addScaledVector(spine, -0.02 * H).addScaledVector(Hl, sgn * halfH * 0.48).addScaledVector(Zh, -halfH * (0.55 + 0.22 * k) * b);
-        basis(m, c, Hl, spine, Zh, 0.075 * (1 + 0.32 * k) * b, 0.085 * (1 + 0.28 * k) * b, 0.07 * (1 + 0.4 * k) * b);
+        // Secondary motion: each lobe lags behind the hips on an underdamped spring, so the hip turn
+        // and weight shift of the swing set it wobbling, and it settles a moment after the body stops.
+        const off = this.spring(key, c, dt, 210, 7.5, 0.07);
+        const squash = 1 + Math.min(0.12, off.length() * 2.2);
+        basis(m, c.clone().add(off), Hl, spine, Zh, 0.075 * (1 + 0.32 * k) * b * squash, 0.085 * (1 + 0.28 * k) * b / squash, 0.07 * (1 + 0.4 * k) * b * squash);
       }
       basis(P.rearC, pelvis.clone().addScaledVector(spine, 0.005 * H).addScaledVector(Zh, -halfH * (0.42 + 0.18 * k) * b), Hl, spine, Zh, halfH * 0.95 * b, 0.075 * (1 + 0.2 * k) * b, 0.06 * (1 + 0.35 * k) * b);
     }

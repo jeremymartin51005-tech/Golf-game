@@ -96,8 +96,8 @@ ${NOISE}
         {
           float lit = dot(normalize(vNgNormal), uSunDirW) - uSunDirW.y;
           float side = dot(normalize(vNgNormal).xz, vec2(0.7071, 0.7071));           // a soft second light
-          float k = ngGreen ? 5.0 : (ngFair ? 2.2 : 1.2);
-          c *= clamp(1.0 + (lit + 0.5 * side) * k, 0.72, 1.3);
+          float k = ngGreen ? 8.0 : (ngFair ? 4.0 : 1.6);
+          c *= clamp(1.0 + (lit + 0.5 * side) * k, 0.62, 1.38);
         }
         // Steep banks dry out a little.
         float ngSlope = sqrt(max(0.0, 1.0 - vNgNormal.y * vNgNormal.y)) / max(vNgNormal.y, 0.05);
@@ -288,10 +288,25 @@ function tuftGeometry() {
 }
 
 // Adds wind sway to any instanced Lambert material. Movement grows with height above the base.
-function addSway(mat, uniforms, amount) {
+function addSway(mat, uniforms, amount, push) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
-    sh.vertexShader = 'uniform float uTime;\nuniform vec2 uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    const pushCode = push ? `
+      #ifdef USE_INSTANCING
+      {
+        // Blades bend away from the ball and from the golfer's feet (world space, turned into the tuft's frame).
+        vec2 base = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+        vec2 push = vec2(0.0);
+        vec2 db = base - uBall.xz; float rb = length(db);
+        push += (rb > 1e-3 ? db / rb : vec2(1.0, 0.0)) * smoothstep(0.45, 0.0, rb) * 1.3;
+        vec2 df = base - uFeet.xz; float rf = length(df);
+        push += (rf > 1e-3 ? df / rf : vec2(1.0, 0.0)) * smoothstep(0.75, 0.1, rf) * 1.0;
+        vec3 local = transpose(mat3(instanceMatrix)) * vec3(push.x, 0.0, push.y);
+        transformed.xz += local.xz * max(position.y, 0.0) * 0.9;
+        transformed.y -= length(push) * max(position.y, 0.0) * 0.35;
+      }
+      #endif` : '';
+    sh.vertexShader = 'uniform float uTime;\nuniform vec2 uWind;\n' + (push ? 'uniform vec3 uBall;\nuniform vec3 uFeet;\n' : '') + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>${pushCode}
       #ifdef USE_INSTANCING
         vec2 ngBase = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
       #else

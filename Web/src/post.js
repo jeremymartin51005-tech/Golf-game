@@ -61,10 +61,12 @@ class PostFX {
     this.composite = new THREE.ShaderMaterial({
       uniforms: { uScene: { value: null }, uBloom: { value: null }, uExposure: { value: 1 }, uBloomStrength: { value: 0.35 }, uWarmth: { value: 0 },
                   uRays: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uSunVis: { value: 0 }, uSunColor: { value: new THREE.Color(1, 0.8, 0.5) },
-                  uAspect: { value: 1.6 }, uCine: { value: 0 } },
+                  uAspect: { value: 1.6 }, uCine: { value: 0 }, uLook: { value: 0 }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1280, 720) }, uSharpen: { value: 0.6 } },
       vertexShader: FS_VERT,
       fragmentShader: `uniform sampler2D uScene; uniform sampler2D uBloom; uniform float uExposure; uniform float uBloomStrength; uniform float uWarmth;
         uniform sampler2D uRays; uniform vec2 uSun; uniform float uSunVis; uniform vec3 uSunColor; uniform float uAspect; uniform float uCine;
+        uniform float uLook; uniform float uTime; uniform vec2 uRes; uniform float uSharpen;
+        float hash12(vec2 p) { p = fract(p * vec2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return fract((p.x + p.y) * p.x); }
         varying vec2 vUv;
         vec3 rrtOdt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
         vec3 filmic(vec3 c) {
@@ -75,6 +77,15 @@ class PostFX {
         vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
         void main() {
           vec3 c = texture2D(uScene, vUv).rgb + texture2D(uBloom, vUv).rgb * uBloomStrength;
+          // Contrast-adaptive sharpening: restores crisp edges after multisampling and filtering.
+          {
+            vec2 px = 1.0 / uRes;
+            vec3 n = texture2D(uScene, vUv + vec2(0.0, px.y)).rgb, sx = texture2D(uScene, vUv - vec2(0.0, px.y)).rgb;
+            vec3 e = texture2D(uScene, vUv + vec2(px.x, 0.0)).rgb, w = texture2D(uScene, vUv - vec2(px.x, 0.0)).rgb;
+            vec3 mn = min(min(min(n, sx), min(e, w)), c), mx = max(max(max(n, sx), max(e, w)), c);
+            vec3 amt = sqrt(clamp(min(mn, 2.0 - mx) / max(mx, 1e-4), 0.0, 1.0)) * -0.125 * uSharpen;
+            c = clamp((c + (n + sx + e + w) * amt) / (1.0 + 4.0 * amt), 0.0, 64.0);
+          }
           if (uSunVis > 0.001) {
             // How much of the sun is actually visible (trees in front of it dim the flare).
             float occ = 0.0;
@@ -106,6 +117,13 @@ class PostFX {
           c += (vec3(0.02, 0.01, -0.015) * smoothstep(0.4, 1.0, l) + vec3(-0.01, 0.0, 0.012) * (1.0 - smoothstep(0.0, 0.35, l))) * (1.0 + uWarmth);
           // Cinematic: golden highlights, warm amber shadows, a soft lifted black.
           c = mix(c, c * vec3(1.06, 0.99, 0.88) + vec3(0.012, 0.006, 0.0), uCine * 0.7);
+          if (uLook > 1.5 && uLook < 2.5) {
+            // Broadcast: natural colour. Pull back the saturation boost, cool the shadows a touch.
+            float lb = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            c = mix(vec3(lb), c, 0.88);
+            c += vec3(-0.006, 0.0, 0.01) * (1.0 - smoothstep(0.0, 0.4, lb));
+          }
+
           c = mix(c, c * c * (3.0 - 2.0 * c), 0.25 * uCine);                     // extra contrast keeps the scene readable
           c = mix(c, c * c * (3.0 - 2.0 * c), 0.18);
           vec2 q = vUv - 0.5;
@@ -131,7 +149,7 @@ class PostFX {
     this.r.render(this.scene, this.cam);
   }
 
-  render(scene, camera, exposure, warmth, sun) {
+  render(scene, camera, exposure, warmth, sun, look, time, sharpen) {
     if (!this.texel) this.setSize();
     this.r.setRenderTarget(this.rt);
     this.r.render(scene, camera);
@@ -152,6 +170,8 @@ class PostFX {
     u.uBloomStrength.value = sun && sun.cine ? 0.6 : 0.35;
     if (sun) { u.uSun.value.copy(sun.uv); u.uSunColor.value.copy(sun.color); }
     u.uAspect.value = this.size.x / Math.max(1, this.size.y);
+    u.uLook.value = look || 0; u.uTime.value = time || 0; u.uRes.value.copy(this.size); u.uSharpen.value = sharpen === undefined ? 0.6 : sharpen;
+    if (look === 2) u.uBloomStrength.value = 0.22;
     this.pass(this.composite, null);
   }
 }

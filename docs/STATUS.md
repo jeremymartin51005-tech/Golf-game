@@ -28,6 +28,29 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Broadcast look, Ultra graphics and physics detail (eighth session)
+
+- **One look: broadcast daylight.** The cinematic, arcade and retro looks were removed. Natural turf
+  colours, clear sky, a natural grade, tall trees around the course, round tee markers, divots, a
+  roped gallery either side of every tee, and a grandstand with a seated gallery on par 3s and the
+  final hole. Broadcast-style banner (hole, golfer, score to par), a blue predicted-flight arc, a
+  light beam at the landing spot and floating distance labels over the landing spot and the flag
+  (arc, beam and labels on Beginner and Intermediate).
+- **Ultra graphics ("4K native").** Renders at the display's full resolution (4K on a 4K screen),
+  4096 shadow map, 25 cm ground texture, 16x texture filtering, light sharpening. Not measured on a
+  real GPU; on a slower machine choose Quality.
+- **Water (core).** Fast, shallow balls skip off water (up to four skips); otherwise they splash in.
+  Splashes, ripple rings and the splash sound are placed where the ball actually touched.
+- **Trees (core).** Trunks are solid: a ball in the air or rolling ricochets off. Crowns slow and
+  deflect a ball in proportion to how deep it goes (a wedge through the middle lost 10 m, one clipping
+  the edge 2 m). Leaves burst from the crown where it was hit.
+- **Grass.** Tufts bend away from the ball and the golfer's feet, and the ball sits down in long grass.
+- **Ball.** 332 shaded dimples and a clear-coat finish.
+- **Slopes.** Much stronger relief shading on greens and fairways so contours read from the camera.
+- **Big Chef.** Spring-driven secondary motion on the seat, set off by the hip turn of the swing and
+  settling about a second later.
+- Core tests: 51 of 51 pass (new: trunk ricochet, crown slowdown, rolling into a trunk, water skips).
+
 ## Cinematic look (seventh session)
 
 New default look, "Cinematic golden hour" (Settings > Look; "Bright daylight" keeps the previous

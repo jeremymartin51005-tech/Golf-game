@@ -69,6 +69,7 @@ public:
     double height(Vec2 p) const override;
     Surface surface(Vec2 p) const override;
     double obstacleHeight(Vec2 p) const override;
+    bool treeAt(Vec2 p, Vec2* centre, double* radius, double* height) const override;
 };
 
 struct CourseConfig {

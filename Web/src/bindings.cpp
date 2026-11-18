@@ -301,6 +301,16 @@ void EXPORT(ng_outcome)() {
     b[28] = o.totalTime; b[29] = s.overswing;
 }
 double* EXPORT(ng_path)() { return gPath.data(); }
+// Events of the last shot for effects: gBuf[0] = water touches, then x,y,z each; then tree hit flag,
+// trunk flag and the point where the ball met the tree.
+void EXPORT(ng_outcome_events)() {
+    const ShotOutcome& o = gLastOutcome;
+    size_t n = std::min<size_t>(o.splashes.size(), 8);
+    gBuf[0] = double(n);
+    for (size_t k = 0; k < n; ++k) { gBuf[1 + k * 3] = o.splashes[k].x; gBuf[2 + k * 3] = o.splashes[k].y; gBuf[3 + k * 3] = o.splashes[k].z; }
+    gBuf[25] = o.hitObstacle ? 1 : 0; gBuf[26] = o.hitTrunk ? 1 : 0;
+    gBuf[27] = o.obstaclePoint.x; gBuf[28] = o.obstaclePoint.y; gBuf[29] = o.obstaclePoint.z;
+}
 const char* EXPORT(ng_feedback)() {
     gText.clear();
     for (const std::string& f : gLastSwing.feedback) { if (!gText.empty()) gText += '\n'; gText += f; }
@@ -314,6 +324,10 @@ const char* EXPORT(ng_score_name)(int strokes, int par) { return scoreName(strok
 // ---- aids -----------------------------------------------------------------------------------------
 
 // Where a perfectly executed shot with these settings would go (does not change the game state).
+bool gPreviewWantPath = false;
+std::vector<double> gPreviewPath;
+}  // extern "C" (helpers above are plain C++)
+extern "C" {
 void EXPORT(ng_preview)(int club, int type, int style, double curve, double traj, double aimDeg, double power) {
     double* b = gBuf;
     for (int k = 0; k < 10; ++k) b[k] = 0;
@@ -324,12 +338,28 @@ void EXPORT(ng_preview)(int club, int type, int style, double curve, double traj
     if (!shotTypeAllowed(in.type, id, gPlay->lie())) in.type = ShotType::Normal;
     SwingSettings s = SwingSettings::forDifficulty(SwingDifficulty::Simulation);
     Launch L = computeLaunch(classicMeterSwing(power, 0.0, s, gAttr), id, in, gPlay->lie(), gAttr, gPlay->conditions().wetness, gSettings.leftHanded);
-    FlightParams fp; fp.dt = 1.0 / 120.0; fp.recordPath = false;
+    FlightParams fp; fp.dt = 1.0 / 120.0; fp.recordPath = gPreviewWantPath;
     if (gPlay->lie() != Surface::Tee) applyLieSlope(L, gPlay->lieSlope(aimDeg, gSettings.leftHanded), gSettings.leftHanded);
     ShotOutcome o = simulateShot(L, gPlay->ball(), aimDeg, gPlay->hole(), gPlay->conditions(), {}, fp);
+    if (gPreviewWantPath) {   // the airborne part of the predicted flight, for the on-course shot arc
+        gPreviewPath.clear();
+        for (const TrajectoryPoint& tp : o.path) {
+            gPreviewPath.push_back(tp.pos.x); gPreviewPath.push_back(tp.pos.y); gPreviewPath.push_back(tp.pos.z);
+            if (!tp.airborne && gPreviewPath.size() > 6) break;
+        }
+    }
     b[0] = o.landing.x; b[1] = o.landing.y; b[2] = o.landing.z; b[3] = o.rest.x; b[4] = o.rest.y; b[5] = o.rest.z;
     b[6] = o.carry; b[7] = o.total; b[8] = o.apex; b[9] = int(o.reason);
 }
+
+// Same as ng_preview, but also records the flight path. Returns the number of points (x, y, z each).
+int EXPORT(ng_preview_path)(int club, int type, int style, double curve, double traj, double aimDeg, double power) {
+    gPreviewWantPath = true;
+    ng_preview(club, type, style, curve, traj, aimDeg, power);
+    gPreviewWantPath = false;
+    return int(gPreviewPath.size() / 3);
+}
+double* EXPORT(ng_preview_path_ptr)() { return gPreviewPath.data(); }
 
 // Slope of the current lie along the given aim: gBuf[0] uphill %, gBuf[1] ball above feet %.
 void EXPORT(ng_lie_slope)(double aimDeg) {

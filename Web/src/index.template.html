@@ -11,7 +11,19 @@
   canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; }
   .hud { position:fixed; pointer-events:none; text-shadow:0 1px 2px rgba(0,0,0,.6); }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; backdrop-filter:blur(6px); }
-  #hudHole { top:14px; left:14px; min-width:190px; }
+  #hudHole { top:14px; left:14px; min-width:290px; padding:0; overflow:hidden; border-radius:6px; background:rgba(10,22,30,.82); border:0; }
+  #hudHole .big { display:flex; align-items:stretch; font-size:18px; background:linear-gradient(90deg,#0e6f6a,#12857e); }
+  #hudHole .bnHole { background:#0a1c24; color:#fff; min-width:40px; display:flex; align-items:center; justify-content:center; font-weight:800; }
+  #hudHole .bnName { flex:1; padding:6px 12px; font-weight:700; letter-spacing:.3px; }
+  #hudHole .bnScore { min-width:52px; display:flex; align-items:center; justify-content:center; background:#f4f4f0; color:#10151a; font-weight:800; }
+  #hudHole .bnScore.under { background:#d8342a; color:#fff; } #hudHole .bnScore.over { background:#1f3a5f; color:#fff; }
+  #hudHole #hScore, #hudHole #hCourse { padding:3px 12px; font-size:12.5px; }
+  #hudHole #hCourse { padding-bottom:7px; }
+  .wlbl { transform:translate(-50%,-100%); text-align:center; font-size:15px; text-shadow:0 1px 3px rgba(0,0,0,.85); white-space:nowrap; display:none; }
+  .wlbl b { display:block; font-weight:800; letter-spacing:.5px; }
+  .wlbl small { display:block; font-size:11px; font-weight:700; opacity:.9; }
+  .wlbl::after { content:""; display:block; margin:2px auto 0; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #fff; }
+  .wlbl.pin::after { border-top-color:#d8342a; }
   #hudHole .big { font-size:22px; font-weight:600; letter-spacing:.2px; }
   #hudWind { top:14px; right:14px; text-align:center; width:120px; }
   #windArrow { width:54px; height:54px; margin:2px auto; transition:transform .25s; }
@@ -112,6 +124,8 @@
 </div>
 </div>
 <div id="result" class="hud card"></div>
+<div id="lblLand" class="hud wlbl"></div>
+<div id="lblPin" class="hud wlbl pin"></div>
 <div id="banner" class="hud"></div>
 <div id="fps" class="hud"></div>
 

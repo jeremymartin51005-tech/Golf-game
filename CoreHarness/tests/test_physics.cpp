@@ -165,3 +165,54 @@ TEST(putting_stroke_maps_to_pace_and_line) {
     CHECK(b.speed > a.speed * 1.7);
     CHECK(std::fabs(a.azimuthDeg) < 0.05 && c.azimuthDeg > 0.3);
 }
+
+// A flat fairway with one tree and a lake, for tree and water behaviour.
+struct TreeLakeTerrain : ITerrain {
+    Vec2 tree{0, 120}; double crown = 4.0, treeH = 14.0;
+    double lakeStart = 1e9;
+    double height(Vec2) const override { return 0; }
+    Surface surface(Vec2 p) const override { return p.y > lakeStart && p.y < lakeStart + 120 ? Surface::Water : Surface::Fairway; }
+    bool treeAt(Vec2 p, Vec2* c, double* r, double* h) const override {
+        if ((p - tree).length() < crown) { *c = tree; *r = crown; *h = treeH; return true; }
+        return false;
+    }
+};
+
+TEST(trees_trunk_ricochets_and_crowns_slow_the_ball) {
+    TreeLakeTerrain t;
+    // A low punch straight at the trunk comes back toward the golfer.
+    Launch punch; punch.ballSpeed = 35; punch.launchDeg = 7; punch.spinRpm = 3000;
+    t.tree = {0, 40};
+    ShotOutcome o = simulateShot(punch, {0, 0, 0}, 0, t, {});
+    CHECK(o.hitTrunk);
+    CHECK(o.rest.y < 40);
+    // A wedge that flies through the middle of the crown drops short; one that clips the edge barely slows.
+    t.tree = {0, 116};
+    Launch w = stock(ClubId::PitchingWedge);
+    double clear = fly(w).carry;
+    ShotOutcome mid = simulateShot(w, {0, 0, 0}, 0, t, {});
+    t.tree = {3.6, 116};
+    ShotOutcome edge = simulateShot(w, {0, 0, 0}, 0, t, {});
+    std::printf("    wedge total: clear %.0f m, through the crown %.0f m, clipping the edge %.0f m\n", clear, mid.total, edge.total);
+    CHECK(mid.hitObstacle && mid.total < clear - 8);
+    CHECK(edge.total > mid.total + 3);
+    // Rolling into a trunk also bounces off.
+    Launch roller; roller.ballSpeed = 20; roller.launchDeg = 1.5; roller.spinRpm = 500;
+    t.tree = {0, 30};
+    ShotOutcome r = simulateShot(roller, {0, 0, 0}, 0, t, {});
+    CHECK(r.hitTrunk && r.rest.y < 30);
+}
+
+TEST(water_low_fast_balls_skip_high_ones_splash) {
+    TreeLakeTerrain t;
+    t.tree = {1e6, 1e6};
+    t.lakeStart = 30;
+    Launch skimmer; skimmer.ballSpeed = 45; skimmer.launchDeg = 3.0; skimmer.spinRpm = 1500;
+    ShotOutcome s = simulateShot(skimmer, {0, 0, 0}, 0, t, {});
+    Launch lob = stock(ClubId::SandWedge);
+    t.lakeStart = 60;
+    ShotOutcome l = simulateShot(lob, {0, 0, 0}, 0, t, {});
+    std::printf("    skimmer: %d skips, %zu water touches, finished %s\n", s.waterSkips, s.splashes.size(), s.reason == RestReason::Water ? "in the water" : "beyond it");
+    CHECK(s.waterSkips >= 1);
+    CHECK(l.waterSkips == 0 && l.reason == RestReason::Water && l.splashes.size() == 1);
+}

@@ -48,6 +48,8 @@ public:
     virtual Vec3 normal(Vec2 p) const;
     // Height of solid obstacles (tree canopy) above ground at p; 0 = none.
     virtual double obstacleHeight(Vec2) const { return 0; }
+    // Tree at p, if any: trunk centre, crown radius, total height (for trunk and canopy collisions).
+    virtual bool treeAt(Vec2, Vec2* centre, double* radius, double* height) const { (void)centre; (void)radius; (void)height; return false; }
 };
 
 class FlatTerrain : public ITerrain {

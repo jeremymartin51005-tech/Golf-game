@@ -23,6 +23,10 @@ struct ShotOutcome {
     Surface restSurface = Surface::Fairway;
     RestReason reason = RestReason::Stopped;
     bool hitObstacle = false;
+    bool hitTrunk = false;
+    int waterSkips = 0;
+    Vec3 obstaclePoint;         // where the ball first met a tree (for leaf effects)
+    std::vector<Vec3> splashes; // where the ball touched water (skips and the final splash)
     Vec3 hazardEntry;           // last dry point before water / in-bounds point before OOB
     std::vector<TrajectoryPoint> path; // decimated, for tracers, cameras and replays
 };

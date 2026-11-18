@@ -152,6 +152,14 @@ Surface HoleLayout::surface(Vec2 p) const {
     return d <= fairwayHalfWidth + 24.0 ? Surface::Rough : Surface::DeepRough;
 }
 
+bool HoleLayout::treeAt(Vec2 p, Vec2* centre, double* radius, double* height) const {
+    for (const Tree& t : trees) {
+        Vec2 d = p - t.pos;
+        if (d.x * d.x + d.y * d.y < t.radius * t.radius) { *centre = t.pos; *radius = t.radius; *height = t.height; return true; }
+    }
+    return false;
+}
+
 double HoleLayout::obstacleHeight(Vec2 p) const {
     for (const Tree& t : trees) {
         Vec2 d = p - t.pos;
