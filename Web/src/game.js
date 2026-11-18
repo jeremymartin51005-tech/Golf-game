@@ -35,7 +35,7 @@ const store = {
   set(key, value) { try { localStorage.setItem('ngg.' + key, JSON.stringify(value)); } catch (e) { /* private mode: play on without saving */ } },
 };
 const defaults = { swingDifficulty: 0, swingMode: 'natural', sensitivity: 1, swingLength: 380, downswingTime: 0.28, units: 'yd',
-                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam', puttGrid: true };
+                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam', puttGrid: true, look: 'cinematic' };
 const settings = Object.assign({}, defaults, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); }
 
@@ -173,11 +173,27 @@ function resize() {
   camera.updateProjectionMatrix();
   if (post) post.setSize();
 }
+// Where the sun is on screen, and how visible (for light shafts and the lens flare).
+const sunProbe = { uv: new THREE.Vector2(), color: new THREE.Color(), vis: 0, cine: 0 };
+const _sunV = new THREE.Vector3(), _camDir = new THREE.Vector3();
+function sunOnScreen() {
+  _sunV.copy(camera.position).addScaledVector(SUN_DIR, 1500).project(camera);
+  camera.getWorldDirection(_camDir);
+  const facing = _camDir.dot(SUN_DIR);
+  const u = _sunV.x * 0.5 + 0.5, v = _sunV.y * 0.5 + 0.5;
+  const edge = Math.min(u + 0.25, 1.25 - u, v + 0.25, 1.25 - v);
+  sunProbe.vis = facing > 0 ? Math.max(0, Math.min(1, edge * 4)) * Math.min(1, facing * 3) * (world.sunStrength || 1) : 0;
+  sunProbe.uv.set(u, v);
+  sunProbe.color.set(world.tod ? world.tod.sun : 0xffffff);
+  sunProbe.cine = world.cine ? 1 : 0;
+  return sunProbe;
+}
+
 function draw() {
   const usePost = post && settings.quality > 0;
   const v = document.getElementById('vignette');
   if (v) v.style.display = usePost ? 'none' : 'block';
-  if (usePost) post.render(scene, camera, renderer.toneMappingExposure, world.tod ? world.tod.warm : 0);
+  if (usePost) post.render(scene, camera, renderer.toneMappingExposure, world.tod ? world.tod.warm : 0, sunOnScreen());
   else renderer.render(scene, camera);
 }
 
@@ -363,10 +379,21 @@ function buildHole(index, env, weather) {
   const far = pal[10];
   const surroundColor = env === 2 ? 0x2f6f9c : (far[0] << 16) | (far[1] << 8) | far[2];
   // Lighting for this time of day, blended toward grey by cloud cover.
-  const tod = TOD[game.course && game.course.tod !== undefined ? game.course.tod : 1];
+  const cine = settings.look === 'cinematic';
+  // Cinematic look: golden hour unless the player chose a time of day for this round.
+  const todIndex = game.course && game.course.tod !== undefined ? game.course.tod : 1;
+  const tod = TOD[cine && game.forceTod < 0 && game.kind === 'round' ? 3 : cine && game.kind === 'range' ? 3 : todIndex];
   const cover = [0, 0.3, 0.85, 0.9, 0.1, 0.9][weather] || 0;
   const el = tod.el * Math.PI / 180, az = tod.az * Math.PI / 180;
   SUN_DIR.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).normalize();
+  if (cine) {
+    // Play into the low sun: put it a little off the line of the first shot, so light shafts and the
+    // glitter on water face the player from the tee.
+    const n = info[25], dx = info[26 + 2 * Math.min(1, n - 1)] - info[26], dy = info[27 + 2 * Math.min(1, n - 1)] - info[27];
+    const ang = Math.atan2(dx, dy) + 0.38;
+    SUN_DIR.set(Math.cos(el) * Math.sin(ang), Math.sin(el), -Math.cos(el) * Math.cos(ang)).normalize();
+  }
+  world.cine = cine;
   const mixHex = (x, y, t) => new THREE.Color(x).lerp(new THREE.Color(y), t).getHex();
   const sky0 = [mixHex(tod.top, (SKY[weather] || SKY[0])[0], cover), mixHex(tod.hor, (SKY[weather] || SKY[0])[1], cover), (SKY[weather] || SKY[0])[2]];
   if (weather === 1 || weather === 4) { sky0[0] = mixHex(tod.top, SKY[weather][0], 0.25); }
@@ -375,6 +402,7 @@ function buildHole(index, env, weather) {
   if (world.hemi) { world.hemi.intensity = 1.35 * tod.hi; world.hemi.color.set(mixHex(0xe6f1ff, tod.hor, 0.35)); }
   terrainMat.userData.uniforms.uSunDirW.value.copy(SUN_DIR);
   const sunStrength = ([1.0, 0.8, 0.25, 0.15, 1.0, 0.1][weather] || 1) * (tod.el < 10 ? 1.3 : 1);
+  world.sunStrength = Math.min(1, sunStrength);
   const surround = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), env === 2
     ? GolfShaders.waterMaterial({ sunDir: SUN_DIR, sunStrength, skyTop: sky0[0], skyHorizon: sky0[1], fogColor: sky0[1], fogDensity: sky0[2],
                                   cx: 0, cy: 0, rx: 1e6, ry: 1e6, rotDeg: 0, deep: 0x0d3550, shallow: 0x2a7f8f, chop: 1.6 })
@@ -593,6 +621,7 @@ function buildHole(index, env, weather) {
   const cloudCover = [0.32, 0.55, 0.82, 0.88, 0.4, 0.6][weather] || 0.35, cloudTint = [0xffffff, 0xf7f9fb, 0xd5dade, 0xb9c0c6, 0xffffff, 0xeef1f3][weather] || 0xffffff;
   const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2200, 48, 24), GolfShaders.skyMaterial(sky[0], sky[1], SUN_DIR, sunStrength, cloudCover, mixHex(cloudTint, tod.sun, tod.el < 12 ? 0.35 : 0.08)));
   world.timeUniforms.push(skyMesh.material.uniforms.uTime);
+  skyMesh.material.uniforms.uGlow.value = cine ? 1 : 0;
   skyMesh.renderOrder = -10;
   skyMesh.frustumCulled = false;
   const skyGroup = new THREE.Group();
@@ -626,10 +655,13 @@ function buildHole(index, env, weather) {
   }
   world.sky = skyGroup;
   g.add(skyGroup);
-  scene.fog = new THREE.FogExp2(sky[1], sky[2]);
-  world.fogDensity = sky[2];
+  // Cinematic haze: warm, sun-tinted air that softens the distance.
+  const fogColor = cine ? new THREE.Color(sky[1]).lerp(new THREE.Color(tod.sun), 0.45) : new THREE.Color(sky[1]);
+  const fogD = cine ? Math.min(sky[2] * 1.35, 0.0015) : sky[2];
+  scene.fog = new THREE.FogExp2(fogColor, fogD);
+  world.fogDensity = fogD;
   if (world.sun) world.sun.intensity = ([2.4, 1.9, 0.9, 0.7, 2.3, 0.6][weather] || 2) * tod.si;
-  renderer.toneMappingExposure = ([1.05, 1.08, 1.18, 1.2, 1.05, 1.15][weather] || 1.05) * (tod.el < 10 ? 1.12 : 1);
+  renderer.toneMappingExposure = ([1.05, 1.08, 1.18, 1.2, 1.05, 1.15][weather] || 1.05) * (tod.el < 10 ? (cine ? 0.95 : 1.12) : 1);
   // Wind for grass, trees and water ripples, in render space.
   const wd = info[21] * Math.PI / 180, ws = Math.min(1.5, 0.25 + info[22] / 6);
   for (const u of world.windUniforms) u.value.set(Math.sin(wd) * ws, -Math.cos(wd) * ws);
@@ -729,7 +761,7 @@ function startCourse(kind, generate) {
                       name: cstr(core.ng_course_name()), code: cstr(core.ng_share_code()), weatherName: cstr(core.ng_weather_name()) };
       // Time of day is presentation only. It follows the course code, so a shared course looks the same for everyone.
       game.course.tod = game.forceTod >= 0 ? game.forceTod : todFromSeed(game.course.code);
-      game.course.weatherName += ' · ' + TOD[game.course.tod].name;
+      game.course.weatherName += ' · ' + (settings.look === 'cinematic' && game.forceTod < 0 ? 'Golden hour' : TOD[game.course.tod].name);
     }
     const nb = core.ng_bag();
     game.bag = Array.from(buf(nb));
@@ -1359,6 +1391,7 @@ function settingsMenu(body, back) {
   slider(body, 'Downswing tempo', 0.16, 0.5, 0.01, settings.downswingTime, (v) => v.toFixed(2) + ' s', (v) => { settings.downswingTime = v; saveSettings(); });
   select(body, 'Handedness', ['Right-handed', 'Left-handed'], settings.leftHanded ? 1 : 0, (v) => { settings.leftHanded = v === '1'; saveSettings(); });
   select(body, 'Units', [{ value: 'yd', label: 'Yards / feet / mph' }, { value: 'm', label: 'Metres / km/h' }], settings.units, (v) => { settings.units = v; saveSettings(); });
+  select(body, 'Look', [{ value: 'cinematic', label: 'Cinematic golden hour' }, { value: 'bright', label: 'Bright daylight' }], settings.look, (v) => { settings.look = v; saveSettings(); });
   select(body, 'Graphics', ['Performance', 'Balanced', 'Quality'], settings.quality, (v) => { settings.quality = Number(v); saveSettings(); applyQuality(); resize(); });
   body.appendChild(el('p', { className: 'note' }, 'Graphics: Performance has no live shadows or grass; Quality adds dense swaying grass and terrain self-shadowing. A change of graphics takes full effect on the next hole.'));
   slider(body, 'Sound volume', 0, 1, 0.05, settings.volume, (v) => Math.round(v * 100) + '%', (v) => { settings.volume = v; saveSettings(); });

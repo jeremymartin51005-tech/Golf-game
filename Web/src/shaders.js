@@ -148,6 +148,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
       uTime: { value: 0 },
       uCover: { value: cover === undefined ? 0.35 : cover },
       uCloud: { value: new THREE.Color(cloudTint === undefined ? 0xffffff : cloudTint) },
+      uGlow: { value: 0 },
     },
     vertexShader: `varying vec3 vDir;
       void main() {
@@ -156,7 +157,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform float uSun;
-      uniform float uTime; uniform float uCover; uniform vec3 uCloud;
+      uniform float uTime; uniform float uCover; uniform vec3 uCloud; uniform float uGlow;
       varying vec3 vDir;
       ${NOISE}
       float cloudDensity(vec2 p) {
@@ -171,6 +172,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
         float mu = max(dot(d, normalize(uSunDir)), 0.0);
         vec3 sunCol = vec3(1.0, 0.92, 0.78);
         col += sunCol * uSun * (pow(mu, 1200.0) * 14.0 + pow(mu, 60.0) * 0.35 + pow(mu, 6.0) * 0.12);
+        col += sunCol * uSun * uGlow * (pow(mu, 380.0) * 5.0 + pow(mu, 30.0) * 0.32 + pow(mu, 4.0) * 0.1);   // golden-hour haze
         // Clouds on a flat layer overhead, drifting slowly. Sunlit tops, darker undersides, fading at the horizon.
         if (d.y > 0.02 && uCover > 0.01) {
           vec2 p = d.xz / (d.y + 0.12) * 1.6 + vec2(uTime * 0.012, uTime * 0.004);
@@ -238,7 +240,11 @@ function waterMaterial(opts) {
         float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
         vec3 R = reflect(-V, n);
         vec3 sky = mix(uSkyHorizon, uSkyTop, pow(max(R.y, 0.0), 0.45));
-        float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 380.0) * 7.0 * uSun;
+        float sdot = max(dot(R, normalize(uSunDir)), 0.0);
+        float spec = pow(sdot, 380.0) * 6.0 * uSun + pow(sdot, 60.0) * 0.22 * uSun;
+        // Glitter: tiny bright wave facets catching the sun along its path across the water.
+        float glint = step(0.95, ngNoise(wp * 7.0 + uTime * vec2(0.9, -0.6))) * pow(sdot, 14.0) * 1.6 * uSun;
+        spec += glint;
         // Distance from the shore, in ellipse units (matches the core's hazard shape).
         vec2 d = wp - uEllipse.xy;
         float cr = cos(uRot), sr = sin(uRot);

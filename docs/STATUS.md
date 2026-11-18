@@ -28,6 +28,14 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Cinematic look (seventh session)
+
+New default look, "Cinematic golden hour" (Settings > Look; "Bright daylight" keeps the previous
+style): low golden sun placed just off the line of play, screen-space light shafts that trees block,
+a hazy sun glow, anamorphic streak and lens ghosts that fade when the sun is hidden, warm sun-tinted
+haze, glittering sun path on water, and a warm, higher-contrast grade. Light shafts and flare need
+Balanced or Quality graphics; Performance keeps the warm light, sky and haze.
+
 ## Graphics pass (sixth session)
 
 Shader-drawn clouds that drift, with sunlit tops and shaded undersides (amount set by the weather),

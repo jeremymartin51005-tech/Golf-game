@@ -141,6 +141,27 @@ class PostFX {
     this.rt = new THREE.WebGLRenderTarget(4, 4, Object.assign({ samples: 4 }, hdr));
     this.a = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthBuffer: false });
     this.b = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthBuffer: false });
+    this.c = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthBuffer: false });
+    // Light shafts: march from each pixel toward the sun; bright sky passes, trees and terrain block.
+    this.rays = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uVis: { value: 0 } },
+      vertexShader: FS_VERT,
+      fragmentShader: `uniform sampler2D uTex; uniform vec2 uSun; uniform float uVis; varying vec2 vUv;
+        void main() {
+          if (uVis <= 0.001) { gl_FragColor = vec4(0.0); return; }
+          vec2 step = (uSun - vUv) / 56.0;
+          vec2 uv = vUv; float decay = 1.0; vec3 acc = vec3(0.0);
+          for (int i = 0; i < 56; i++) {
+            uv += step;
+            vec3 s = texture2D(uTex, clamp(uv, 0.001, 0.999)).rgb;
+            float l = max(max(s.r, s.g), s.b);
+            acc += s * smoothstep(1.3, 3.5, l) * decay;                 // only the bright sky near the sun casts shafts
+            decay *= 0.962;
+          }
+          gl_FragColor = vec4(acc / 56.0 * uVis, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
     this.quad.frustumCulled = false;
@@ -166,9 +187,12 @@ class PostFX {
       depthTest: false, depthWrite: false,
     });
     this.composite = new THREE.ShaderMaterial({
-      uniforms: { uScene: { value: null }, uBloom: { value: null }, uExposure: { value: 1 }, uBloomStrength: { value: 0.35 }, uWarmth: { value: 0 } },
+      uniforms: { uScene: { value: null }, uBloom: { value: null }, uExposure: { value: 1 }, uBloomStrength: { value: 0.35 }, uWarmth: { value: 0 },
+                  uRays: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uSunVis: { value: 0 }, uSunColor: { value: new THREE.Color(1, 0.8, 0.5) },
+                  uAspect: { value: 1.6 }, uCine: { value: 0 } },
       vertexShader: FS_VERT,
       fragmentShader: `uniform sampler2D uScene; uniform sampler2D uBloom; uniform float uExposure; uniform float uBloomStrength; uniform float uWarmth;
+        uniform sampler2D uRays; uniform vec2 uSun; uniform float uSunVis; uniform vec3 uSunColor; uniform float uAspect; uniform float uCine;
         varying vec2 vUv;
         vec3 rrtOdt(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
         vec3 filmic(vec3 c) {
@@ -179,11 +203,38 @@ class PostFX {
         vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
         void main() {
           vec3 c = texture2D(uScene, vUv).rgb + texture2D(uBloom, vUv).rgb * uBloomStrength;
+          if (uSunVis > 0.001) {
+            // How much of the sun is actually visible (trees in front of it dim the flare).
+            float occ = 0.0;
+            for (int i = 0; i < 5; i++) {
+              vec2 o = vec2(float(i - 2) * 0.006, float((i * 3) % 5 - 2) * 0.006);
+              vec3 sc = texture2D(uScene, clamp(uSun + o, 0.001, 0.999)).rgb;
+              occ += smoothstep(1.0, 3.0, max(max(sc.r, sc.g), sc.b)) * 0.2;
+            }
+            vec3 sunC = uSunColor * uSunVis;
+            c += texture2D(uRays, vUv).rgb * sunC * (0.35 + 0.55 * uCine);               // god rays
+            vec2 sv = (vUv - uSun) * vec2(uAspect, 1.0);
+            float sd = length(sv);
+            c += sunC * occ * (exp(-sd * sd * 30.0) * 0.28 + exp(-sd * 9.0) * 0.1) * uCine;   // hazy glow around the sun
+            c += sunC * occ * exp(-abs(sv.y) * 140.0) * exp(-abs(sv.x) * 3.0) * 0.18 * uCine; // horizontal streak
+            // Lens ghosts along the line from the sun through the screen centre, and a soft halo ring.
+            vec2 axis = vec2(0.5) - uSun;
+            vec3 ghosts = vec3(0.0);
+            ghosts += vec3(1.0, 0.75, 0.4) * smoothstep(0.06, 0.02, length((vUv - (uSun + axis * 0.55)) * vec2(uAspect, 1.0)));
+            ghosts += vec3(0.6, 0.8, 1.0) * smoothstep(0.035, 0.01, length((vUv - (uSun + axis * 0.85)) * vec2(uAspect, 1.0)));
+            ghosts += vec3(0.9, 0.5, 1.0) * smoothstep(0.11, 0.05, length((vUv - (uSun + axis * 1.35)) * vec2(uAspect, 1.0))) * 0.6;
+            ghosts += vec3(0.5, 1.0, 0.7) * smoothstep(0.05, 0.015, length((vUv - (uSun + axis * 1.75)) * vec2(uAspect, 1.0)));
+            ghosts += vec3(1.0, 0.6, 0.3) * exp(-pow((sd - 0.42) * 22.0, 2.0)) * 0.5;
+            c += ghosts * sunC * occ * 0.06 * uCine;
+          }
           c = filmic(c * uExposure);
           // Grade: a touch more saturation, warm highlights and cool shadows, soft S-curve.
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
           c = mix(vec3(l), c, 1.24);                                     // vivid, but not neon
           c += (vec3(0.02, 0.01, -0.015) * smoothstep(0.4, 1.0, l) + vec3(-0.01, 0.0, 0.012) * (1.0 - smoothstep(0.0, 0.35, l))) * (1.0 + uWarmth);
+          // Cinematic: golden highlights, warm amber shadows, a soft lifted black.
+          c = mix(c, c * vec3(1.06, 0.99, 0.88) + vec3(0.012, 0.006, 0.0), uCine * 0.7);
+          c = mix(c, c * c * (3.0 - 2.0 * c), 0.25 * uCine);                     // extra contrast keeps the scene readable
           c = mix(c, c * c * (3.0 - 2.0 * c), 0.18);
           vec2 q = vUv - 0.5;
           c *= 1.0 - 0.32 * smoothstep(0.35, 0.95, length(q * vec2(1.25, 1.0)) * 1.25);
@@ -198,7 +249,7 @@ class PostFX {
     const s = this.r.getDrawingBufferSize(this.size);
     this.rt.setSize(s.x, s.y);
     const bw = Math.max(1, Math.floor(s.x / 4)), bh = Math.max(1, Math.floor(s.y / 4));
-    this.a.setSize(bw, bh); this.b.setSize(bw, bh);
+    this.a.setSize(bw, bh); this.b.setSize(bw, bh); this.c.setSize(bw, bh);
     this.texel = new THREE.Vector2(1 / bw, 1 / bh);
   }
 
@@ -208,7 +259,7 @@ class PostFX {
     this.r.render(this.scene, this.cam);
   }
 
-  render(scene, camera, exposure, warmth) {
+  render(scene, camera, exposure, warmth, sun) {
     if (!this.texel) this.setSize();
     this.r.setRenderTarget(this.rt);
     this.r.render(scene, camera);
@@ -220,7 +271,15 @@ class PostFX {
       this.blur.uniforms.uTex.value = this.b.texture; this.blur.uniforms.uDir.value.set(0, this.texel.y * spread); this.pass(this.blur, this.a);
     }
     const u = this.composite.uniforms;
+    const vis = sun ? sun.vis : 0;
+    this.rays.uniforms.uTex.value = this.rt.texture; this.rays.uniforms.uVis.value = vis;
+    if (sun) this.rays.uniforms.uSun.value.copy(sun.uv);
+    this.pass(this.rays, this.c);
     u.uScene.value = this.rt.texture; u.uBloom.value = this.a.texture; u.uExposure.value = exposure; u.uWarmth.value = warmth || 0;
+    u.uRays.value = this.c.texture; u.uSunVis.value = vis; u.uCine.value = sun ? sun.cine : 0;
+    u.uBloomStrength.value = sun && sun.cine ? 0.6 : 0.35;
+    if (sun) { u.uSun.value.copy(sun.uv); u.uSunColor.value.copy(sun.color); }
+    u.uAspect.value = this.size.x / Math.max(1, this.size.y);
     this.pass(this.composite, null);
   }
 }
@@ -721,6 +780,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
       uTime: { value: 0 },
       uCover: { value: cover === undefined ? 0.35 : cover },
       uCloud: { value: new THREE.Color(cloudTint === undefined ? 0xffffff : cloudTint) },
+      uGlow: { value: 0 },
     },
     vertexShader: `varying vec3 vDir;
       void main() {
@@ -729,7 +789,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform float uSun;
-      uniform float uTime; uniform float uCover; uniform vec3 uCloud;
+      uniform float uTime; uniform float uCover; uniform vec3 uCloud; uniform float uGlow;
       varying vec3 vDir;
       ${NOISE}
       float cloudDensity(vec2 p) {
@@ -744,6 +804,7 @@ function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
         float mu = max(dot(d, normalize(uSunDir)), 0.0);
         vec3 sunCol = vec3(1.0, 0.92, 0.78);
         col += sunCol * uSun * (pow(mu, 1200.0) * 14.0 + pow(mu, 60.0) * 0.35 + pow(mu, 6.0) * 0.12);
+        col += sunCol * uSun * uGlow * (pow(mu, 380.0) * 5.0 + pow(mu, 30.0) * 0.32 + pow(mu, 4.0) * 0.1);   // golden-hour haze
         // Clouds on a flat layer overhead, drifting slowly. Sunlit tops, darker undersides, fading at the horizon.
         if (d.y > 0.02 && uCover > 0.01) {
           vec2 p = d.xz / (d.y + 0.12) * 1.6 + vec2(uTime * 0.012, uTime * 0.004);
@@ -811,7 +872,11 @@ function waterMaterial(opts) {
         float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
         vec3 R = reflect(-V, n);
         vec3 sky = mix(uSkyHorizon, uSkyTop, pow(max(R.y, 0.0), 0.45));
-        float spec = pow(max(dot(R, normalize(uSunDir)), 0.0), 380.0) * 7.0 * uSun;
+        float sdot = max(dot(R, normalize(uSunDir)), 0.0);
+        float spec = pow(sdot, 380.0) * 6.0 * uSun + pow(sdot, 60.0) * 0.22 * uSun;
+        // Glitter: tiny bright wave facets catching the sun along its path across the water.
+        float glint = step(0.95, ngNoise(wp * 7.0 + uTime * vec2(0.9, -0.6))) * pow(sdot, 14.0) * 1.6 * uSun;
+        spec += glint;
         // Distance from the shore, in ellipse units (matches the core's hazard shape).
         vec2 d = wp - uEllipse.xy;
         float cr = cos(uRot), sr = sin(uRot);
@@ -910,7 +975,7 @@ const store = {
   set(key, value) { try { localStorage.setItem('ngg.' + key, JSON.stringify(value)); } catch (e) { /* private mode: play on without saving */ } },
 };
 const defaults = { swingDifficulty: 0, swingMode: 'natural', sensitivity: 1, swingLength: 380, downswingTime: 0.28, units: 'yd',
-                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam', puttGrid: true };
+                   leftHanded: false, quality: 1, volume: 0.6, showFps: false, tracer: true, golfer: 'sam', puttGrid: true, look: 'cinematic' };
 const settings = Object.assign({}, defaults, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); }
 
@@ -1048,11 +1113,27 @@ function resize() {
   camera.updateProjectionMatrix();
   if (post) post.setSize();
 }
+// Where the sun is on screen, and how visible (for light shafts and the lens flare).
+const sunProbe = { uv: new THREE.Vector2(), color: new THREE.Color(), vis: 0, cine: 0 };
+const _sunV = new THREE.Vector3(), _camDir = new THREE.Vector3();
+function sunOnScreen() {
+  _sunV.copy(camera.position).addScaledVector(SUN_DIR, 1500).project(camera);
+  camera.getWorldDirection(_camDir);
+  const facing = _camDir.dot(SUN_DIR);
+  const u = _sunV.x * 0.5 + 0.5, v = _sunV.y * 0.5 + 0.5;
+  const edge = Math.min(u + 0.25, 1.25 - u, v + 0.25, 1.25 - v);
+  sunProbe.vis = facing > 0 ? Math.max(0, Math.min(1, edge * 4)) * Math.min(1, facing * 3) * (world.sunStrength || 1) : 0;
+  sunProbe.uv.set(u, v);
+  sunProbe.color.set(world.tod ? world.tod.sun : 0xffffff);
+  sunProbe.cine = world.cine ? 1 : 0;
+  return sunProbe;
+}
+
 function draw() {
   const usePost = post && settings.quality > 0;
   const v = document.getElementById('vignette');
   if (v) v.style.display = usePost ? 'none' : 'block';
-  if (usePost) post.render(scene, camera, renderer.toneMappingExposure, world.tod ? world.tod.warm : 0);
+  if (usePost) post.render(scene, camera, renderer.toneMappingExposure, world.tod ? world.tod.warm : 0, sunOnScreen());
   else renderer.render(scene, camera);
 }
 
@@ -1238,10 +1319,21 @@ function buildHole(index, env, weather) {
   const far = pal[10];
   const surroundColor = env === 2 ? 0x2f6f9c : (far[0] << 16) | (far[1] << 8) | far[2];
   // Lighting for this time of day, blended toward grey by cloud cover.
-  const tod = TOD[game.course && game.course.tod !== undefined ? game.course.tod : 1];
+  const cine = settings.look === 'cinematic';
+  // Cinematic look: golden hour unless the player chose a time of day for this round.
+  const todIndex = game.course && game.course.tod !== undefined ? game.course.tod : 1;
+  const tod = TOD[cine && game.forceTod < 0 && game.kind === 'round' ? 3 : cine && game.kind === 'range' ? 3 : todIndex];
   const cover = [0, 0.3, 0.85, 0.9, 0.1, 0.9][weather] || 0;
   const el = tod.el * Math.PI / 180, az = tod.az * Math.PI / 180;
   SUN_DIR.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).normalize();
+  if (cine) {
+    // Play into the low sun: put it a little off the line of the first shot, so light shafts and the
+    // glitter on water face the player from the tee.
+    const n = info[25], dx = info[26 + 2 * Math.min(1, n - 1)] - info[26], dy = info[27 + 2 * Math.min(1, n - 1)] - info[27];
+    const ang = Math.atan2(dx, dy) + 0.38;
+    SUN_DIR.set(Math.cos(el) * Math.sin(ang), Math.sin(el), -Math.cos(el) * Math.cos(ang)).normalize();
+  }
+  world.cine = cine;
   const mixHex = (x, y, t) => new THREE.Color(x).lerp(new THREE.Color(y), t).getHex();
   const sky0 = [mixHex(tod.top, (SKY[weather] || SKY[0])[0], cover), mixHex(tod.hor, (SKY[weather] || SKY[0])[1], cover), (SKY[weather] || SKY[0])[2]];
   if (weather === 1 || weather === 4) { sky0[0] = mixHex(tod.top, SKY[weather][0], 0.25); }
@@ -1250,6 +1342,7 @@ function buildHole(index, env, weather) {
   if (world.hemi) { world.hemi.intensity = 1.35 * tod.hi; world.hemi.color.set(mixHex(0xe6f1ff, tod.hor, 0.35)); }
   terrainMat.userData.uniforms.uSunDirW.value.copy(SUN_DIR);
   const sunStrength = ([1.0, 0.8, 0.25, 0.15, 1.0, 0.1][weather] || 1) * (tod.el < 10 ? 1.3 : 1);
+  world.sunStrength = Math.min(1, sunStrength);
   const surround = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), env === 2
     ? GolfShaders.waterMaterial({ sunDir: SUN_DIR, sunStrength, skyTop: sky0[0], skyHorizon: sky0[1], fogColor: sky0[1], fogDensity: sky0[2],
                                   cx: 0, cy: 0, rx: 1e6, ry: 1e6, rotDeg: 0, deep: 0x0d3550, shallow: 0x2a7f8f, chop: 1.6 })
@@ -1468,6 +1561,7 @@ function buildHole(index, env, weather) {
   const cloudCover = [0.32, 0.55, 0.82, 0.88, 0.4, 0.6][weather] || 0.35, cloudTint = [0xffffff, 0xf7f9fb, 0xd5dade, 0xb9c0c6, 0xffffff, 0xeef1f3][weather] || 0xffffff;
   const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2200, 48, 24), GolfShaders.skyMaterial(sky[0], sky[1], SUN_DIR, sunStrength, cloudCover, mixHex(cloudTint, tod.sun, tod.el < 12 ? 0.35 : 0.08)));
   world.timeUniforms.push(skyMesh.material.uniforms.uTime);
+  skyMesh.material.uniforms.uGlow.value = cine ? 1 : 0;
   skyMesh.renderOrder = -10;
   skyMesh.frustumCulled = false;
   const skyGroup = new THREE.Group();
@@ -1501,10 +1595,13 @@ function buildHole(index, env, weather) {
   }
   world.sky = skyGroup;
   g.add(skyGroup);
-  scene.fog = new THREE.FogExp2(sky[1], sky[2]);
-  world.fogDensity = sky[2];
+  // Cinematic haze: warm, sun-tinted air that softens the distance.
+  const fogColor = cine ? new THREE.Color(sky[1]).lerp(new THREE.Color(tod.sun), 0.45) : new THREE.Color(sky[1]);
+  const fogD = cine ? Math.min(sky[2] * 1.35, 0.0015) : sky[2];
+  scene.fog = new THREE.FogExp2(fogColor, fogD);
+  world.fogDensity = fogD;
   if (world.sun) world.sun.intensity = ([2.4, 1.9, 0.9, 0.7, 2.3, 0.6][weather] || 2) * tod.si;
-  renderer.toneMappingExposure = ([1.05, 1.08, 1.18, 1.2, 1.05, 1.15][weather] || 1.05) * (tod.el < 10 ? 1.12 : 1);
+  renderer.toneMappingExposure = ([1.05, 1.08, 1.18, 1.2, 1.05, 1.15][weather] || 1.05) * (tod.el < 10 ? (cine ? 0.95 : 1.12) : 1);
   // Wind for grass, trees and water ripples, in render space.
   const wd = info[21] * Math.PI / 180, ws = Math.min(1.5, 0.25 + info[22] / 6);
   for (const u of world.windUniforms) u.value.set(Math.sin(wd) * ws, -Math.cos(wd) * ws);
@@ -1604,7 +1701,7 @@ function startCourse(kind, generate) {
                       name: cstr(core.ng_course_name()), code: cstr(core.ng_share_code()), weatherName: cstr(core.ng_weather_name()) };
       // Time of day is presentation only. It follows the course code, so a shared course looks the same for everyone.
       game.course.tod = game.forceTod >= 0 ? game.forceTod : todFromSeed(game.course.code);
-      game.course.weatherName += ' · ' + TOD[game.course.tod].name;
+      game.course.weatherName += ' · ' + (settings.look === 'cinematic' && game.forceTod < 0 ? 'Golden hour' : TOD[game.course.tod].name);
     }
     const nb = core.ng_bag();
     game.bag = Array.from(buf(nb));
@@ -2234,6 +2331,7 @@ function settingsMenu(body, back) {
   slider(body, 'Downswing tempo', 0.16, 0.5, 0.01, settings.downswingTime, (v) => v.toFixed(2) + ' s', (v) => { settings.downswingTime = v; saveSettings(); });
   select(body, 'Handedness', ['Right-handed', 'Left-handed'], settings.leftHanded ? 1 : 0, (v) => { settings.leftHanded = v === '1'; saveSettings(); });
   select(body, 'Units', [{ value: 'yd', label: 'Yards / feet / mph' }, { value: 'm', label: 'Metres / km/h' }], settings.units, (v) => { settings.units = v; saveSettings(); });
+  select(body, 'Look', [{ value: 'cinematic', label: 'Cinematic golden hour' }, { value: 'bright', label: 'Bright daylight' }], settings.look, (v) => { settings.look = v; saveSettings(); });
   select(body, 'Graphics', ['Performance', 'Balanced', 'Quality'], settings.quality, (v) => { settings.quality = Number(v); saveSettings(); applyQuality(); resize(); });
   body.appendChild(el('p', { className: 'note' }, 'Graphics: Performance has no live shadows or grass; Quality adds dense swaying grass and terrain self-shadowing. A change of graphics takes full effect on the next hole.'));
   slider(body, 'Sound volume', 0, 1, 0.05, settings.volume, (v) => Math.round(v * 100) + '%', (v) => { settings.volume = v; saveSettings(); });
