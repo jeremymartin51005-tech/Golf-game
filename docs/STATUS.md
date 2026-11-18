@@ -28,6 +28,17 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Scenery detail pass (ninth session)
+
+Trees are now crowns of many crossed, tilted leaf-cluster cards (hundreds of individual leaves per
+card, ragged edges) on trunks and limbs with varied bark, so they read as foliage rather than solid
+shapes; pines are whorls of needle sprays. Spectators have legs, shoes, torso, arms, hands, head and
+hair or caps, in varied builds, skin tones and clothes. Greens follow the tournament look: smooth
+light yellow-green surface with a faint view-dependent double-cut sheen, a darker collar and first
+cut, bright white bunkers with a dark grass lip, and rock edging around ponds. Golfers use physical
+materials (sheen on fabric and skin) and smoother geometry. The shot preview is now a thin faint arc
+and a soft ground marker, with no light column, and it disappears as soon as the swing starts.
+
 ## Broadcast look, Ultra graphics and physics detail (eighth session)
 
 - **One look: broadcast daylight.** The cinematic, arcade and retro looks were removed. Natural turf

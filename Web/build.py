@@ -12,7 +12,7 @@ game = (root / 'src/shaders.js').read_text() + '\n' + (root / 'src/game.js').rea
 wasm = base64.b64encode((root / 'build/golfcore.wasm').read_bytes()).decode()
 for name, text in (('three', three), ('game', game)):
     assert '</script' not in text.lower(), name + ' contains a closing script tag'
-extra = '\n'.join((root / 'src' / f).read_text() for f in ('post.js', 'golfer.js'))
+extra = '\n'.join((root / 'src' / f).read_text() for f in ('post.js', 'golfer.js', 'nature.js'))
 assert '</script' not in extra.lower()
 html = html.replace('/*__THREE__*/', three).replace('/*__EXTRA__*/', extra).replace('/*__WASM__*/', wasm).replace('/*__GAME__*/', game)
 (root / 'dist').mkdir(exist_ok=True)

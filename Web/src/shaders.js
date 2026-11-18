@@ -62,13 +62,15 @@ ${NOISE}
           c *= 0.93 + 0.13 * n2 + 0.10 * (n3 - 0.5) * ngFine;
         } else if (ngGreen) {
           c *= 0.95 + 0.08 * n2 + 0.035 * (n3 - 0.5) * ngFine;
-          // Tournament green: a crisp diagonal checkerboard cut, and a darker collar on the fringe.
-          vec2 q = vec2(dot(ngWp, vec2(0.7071, 0.7071)), dot(ngWp, vec2(-0.7071, 0.7071))) / 2.6;
-          vec2 fq = abs(fract(q) - 0.5);
-          float cell = mod(floor(q.x) + floor(q.y), 2.0);
-          float edge = smoothstep(0.0, 0.03, min(fq.x, fq.y));
-          c *= mix(1.0, (cell > 0.5 ? 1.07 : 0.94), edge);
-          if (ngSurf == 7.0) c *= 0.9;
+          // Tournament green: smooth, even and bright with only a faint double-cut sheen that shifts with the
+          // view; the collar around it is a slightly longer, darker ring.
+          vec2 viewG = normalize(vec2(vNgWorld.x - cameraPosition.x, -(vNgWorld.z - cameraPosition.z)) + 1e-4);
+          float across = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 3.5;
+          float wq = fwidth(across) * 1.5 + 0.03;
+          float band = smoothstep(0.5 - wq, 0.5 + wq, abs(fract(across) - 0.5) * 2.0);
+          float facingG = dot(viewG, uStripeDir);
+          c *= 1.0 + (band - 0.5) * 0.045 * facingG;
+          if (ngSurf == 7.0) c *= 0.86;
         } else if (ngRough) {
           float clump = ngFbm(ngWp * 0.45);
           c *= 0.76 + 0.40 * clump;
@@ -96,7 +98,7 @@ ${NOISE}
         {
           float lit = dot(normalize(vNgNormal), uSunDirW) - uSunDirW.y;
           float side = dot(normalize(vNgNormal).xz, vec2(0.7071, 0.7071));           // a soft second light
-          float k = ngGreen ? 8.0 : (ngFair ? 4.0 : 1.6);
+          float k = ngGreen ? 8.0 : (ngFair ? 4.0 : ngSand ? 3.2 : 1.6);
           c *= clamp(1.0 + (lit + 0.5 * side) * k, 0.62, 1.38);
         }
         // Steep banks dry out a little.

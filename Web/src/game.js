@@ -293,6 +293,11 @@ function buildHole(index, env, weather) {
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(mw, mh), px = img.data, pal = palette(env).map((c, i) => {
     if (settings.look !== 'broadcast') return c;
+    // Tournament presentation: light yellow-green putting surfaces, a darker collar, bright white sand.
+    if (i === SURF.Green) return [134, 194, 82];
+    if (i === SURF.Fringe) return [96, 160, 62];
+    if (i === SURF.FirstCut) return [92, 150, 58];
+    if (i === SURF.Sand) return [240, 236, 222];
     // Natural turf: less saturated than the arcade palette, deeper rough.
     const l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2], k = i === 3 || i === 4 || i === 10 ? 0.86 : 1;
     return c.map((v) => Math.round((l + (v - l) * 0.8) * k));
@@ -305,8 +310,12 @@ function buildHole(index, env, weather) {
       if (s === SURF.Rough || s === SURF.DeepRough || s === SURF.OOB) n += 9 * Math.sin(x * 0.045) * Math.sin(y * 0.038);
       if (s === SURF.Water) n = 6 * Math.sin(x * 0.11 + y * 0.07);
       // Edges: a shaded lip around bunkers and a darker bank around water read as depth from a distance.
-      if ((s === SURF.Sand || s === SURF.Water) && x > 2 && y > 2 && x < mw - 3 && y < mh - 3) {
-        if (map[y * mw + x - 3] !== s || map[y * mw + x + 3] !== s || map[(y - 3) * mw + x] !== s || map[(y + 3) * mw + x] !== s) n -= s === SURF.Sand ? 26 : 18;
+      if (x > 3 && y > 3 && x < mw - 4 && y < mh - 4) {
+        const L = Math.max(2, Math.round(0.9 / res));            // ~1 m of lip
+        const near = (t) => map[y * mw + x - L] === t || map[y * mw + x + L] === t || map[(y - L) * mw + x] === t || map[(y + L) * mw + x] === t;
+        // Grass right at a bunker's edge is a darker, taller lip; sand stays clean and bright.
+        if (s !== SURF.Sand && s !== SURF.Water && near(SURF.Sand)) n -= 34;
+        if (s === SURF.Water && (map[y * mw + x - L] !== s || map[y * mw + x + L] !== s)) n -= 18;
       }
       px[i] = c[0] + n; px[i + 1] = c[1] + n; px[i + 2] = c[2] + n; px[i + 3] = 255;
     }
@@ -438,6 +447,7 @@ function buildHole(index, env, weather) {
     disc.receiveShadow = false;
     g.add(disc);
     world.timeUniforms.push(m.uniforms.uTime);
+    if (env !== 2 && env !== 5) g.add(GolfNature.buildRockEdge(cx, cy, rx + 0.6, ry + 0.6, rot, (x, y) => core.ng_height(index, x, y), 31 + k + index * 7));
   }
 
   // Grass tufts in the rough, swaying in the wind (Balanced and Quality only).
@@ -570,40 +580,19 @@ function buildHole(index, env, weather) {
       if (map[my * mw + mx] !== SURF.OOB) continue;
       const x = gx + mx * res, y = gy + my * res;
       const tallBelt = settings.look === 'broadcast';
-      belt.push([x, y, core.ng_height(index, x, y), 3 + brnd() * 2.5, tallBelt ? 16 + brnd() * 11 : 10 + brnd() * 9]);
+      belt.push([x, y, core.ng_height(index, x, y), 3 + brnd() * 3, tallBelt ? 11 + brnd() * 15 : 10 + brnd() * 9]);
     }
     for (const bt of belt) trees.push(...bt);
     const nAll = nTrees + belt.length;
-    const canopy = new THREE.InstancedMesh(canopyGeo, GolfShaders.addSway(new THREE.MeshLambertMaterial({ vertexColors: true }), treeU, 0.05), nAll * 2);
+    // Every tree is a crown of many crossed leaf-cluster cards on a trunk and limbs.
+    const treeGroup = GolfNature.buildTrees(trees, nAll, {
+      pine, seed: 101 + index,
+      lifted: (t) => t >= nTrees && settings.look === 'broadcast',
+      sway: (mat) => { GolfShaders.addSway(mat, treeU, 0.12); },
+    });
     world.timeUniforms.push(treeU.uTime); world.windUniforms.push(treeU.uWind);
-    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.32, 1, 7), new THREE.MeshLambertMaterial({ color: 0x5b4532 }), nAll);
-    canopy.castShadow = true; trunk.castShadow = true;
-    const m = new THREE.Matrix4(), s = new THREE.Vector3(), p = new THREE.Vector3(), rot = new THREE.Quaternion(), col = new THREE.Color();
-    for (let t = 0; t < nAll; t++) {
-      const tx = trees[t * 5], ty = trees[t * 5 + 1], tz = trees[t * 5 + 2], r = trees[t * 5 + 3], h = trees[t * 5 + 4];
-      const v = ((t * 2654435761) >>> 0) / 4294967296;           // stable per-tree variation
-      rot.setFromAxisAngle(UP, t * 1.7);
-      col.copy(base).offsetHSL((v - 0.5) * 0.04, (v - 0.5) * 0.1, (v - 0.5) * 0.09);
-      if (pine) {
-        p.set(tx, tz + h * 0.46, -ty); s.set(r * 1.05, h * 0.62, r * 1.05); canopy.setMatrixAt(t * 2, m.compose(p, rot, s));
-        p.set(tx, tz + h * 0.76, -ty); s.set(r * 0.68, h * 0.48, r * 0.68); canopy.setMatrixAt(t * 2 + 1, m.compose(p, rot, s));
-      } else {
-        const lifted = t >= nTrees && settings.look === 'broadcast';
-        if (lifted) {   // tall tree with a high, spreading crown (visual only, beyond the boundary)
-          p.set(tx, tz + h * 0.8, -ty); s.set(r * 1.7, h * 0.24, r * 1.7); canopy.setMatrixAt(t * 2, m.compose(p, rot, s));
-          p.set(tx + r * 0.6 * Math.cos(t), tz + h * 0.66, -ty + r * 0.6 * Math.sin(t)); s.set(r * 1.1, h * 0.16, r * 1.1); canopy.setMatrixAt(t * 2 + 1, m.compose(p, rot, s));
-          canopy.setColorAt(t * 2, col); canopy.setColorAt(t * 2 + 1, col);
-          p.set(tx, tz + h * 0.36, -ty); s.set(0.8 + r * 0.1, h * 0.72, 0.8 + r * 0.1); trunk.setMatrixAt(t, m.compose(p, rot, s));
-          continue;
-        }
-        p.set(tx, tz + h * 0.62, -ty); s.set(r * 1.2, h * 0.34, r * 1.2); canopy.setMatrixAt(t * 2, m.compose(p, rot, s));
-        p.set(tx + r * 0.45 * Math.cos(t), tz + h * 0.8, -ty + r * 0.45 * Math.sin(t)); s.set(r * 0.8, h * 0.24, r * 0.8); canopy.setMatrixAt(t * 2 + 1, m.compose(p, rot, s));
-      }
-      canopy.setColorAt(t * 2, col); canopy.setColorAt(t * 2 + 1, col.offsetHSL(0, 0, 0.035));
-      p.set(tx, tz + h * 0.25, -ty); s.set(1 + r * 0.12, h * 0.5, 1 + r * 0.12);
-      trunk.setMatrixAt(t, m.compose(p, rot, s));
-    }
-    g.add(canopy, trunk);
+    void base;
+    g.add(treeGroup);
   }
 
   // Flag and cup.
@@ -681,28 +670,7 @@ function buildHole(index, env, weather) {
           }
         }
       }
-      const n = people.length;
-      const legs = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.15, 0.62, 4, 8), new THREE.MeshLambertMaterial(), n);
-      const torso = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.21, 0.42, 4, 10), new THREE.MeshLambertMaterial(), n);
-      const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.11, 10, 8), new THREE.MeshLambertMaterial(), n);
-      const hat = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial(), n);
-      const shirts = [0xffffff, 0x1d4e89, 0xe63946, 0x8ecae6, 0x2a9d8f, 0xf4a261, 0xc9184a, 0x6c757d, 0xf1faee, 0x3a5a40, 0xffb4c6];
-      const bottoms = [0x2b2d42, 0xd6c7a1, 0x495057, 0x1b263b, 0xe9e4d8, 0x6b705c];
-      const skins = [0xf1c27d, 0xc68642, 0x8d5524, 0xe0ac69, 0xffdbac, 0x5c3a21];
-      const c3 = new THREE.Color(), qq = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
-      people.forEach(([x, y, z, face], k) => {
-        const tall = 0.92 + dr() * 0.16;
-        qq.setFromAxisAngle(UP, face);
-        legs.setMatrixAt(k, m4.compose(new THREE.Vector3(x, z + 0.47 * tall, -y), qq, new THREE.Vector3(1.15, tall, 0.8)));
-        torso.setMatrixAt(k, m4.compose(new THREE.Vector3(x, z + 1.18 * tall, -y), qq, new THREE.Vector3(1, tall, 0.75)));
-        head.setMatrixAt(k, m4.compose(new THREE.Vector3(x, z + 1.62 * tall, -y), qq, one));
-        hat.setMatrixAt(k, m4.compose(new THREE.Vector3(x, z + 1.64 * tall, -y), qq, dr() < 0.45 ? one : new THREE.Vector3(0.001, 0.001, 0.001)));
-        legs.setColorAt(k, c3.set(bottoms[Math.floor(dr() * bottoms.length)]));
-        torso.setColorAt(k, c3.set(shirts[Math.floor(dr() * shirts.length)]));
-        head.setColorAt(k, c3.set(skins[Math.floor(dr() * skins.length)]));
-        hat.setColorAt(k, c3.set(shirts[Math.floor(dr() * shirts.length)]));
-      });
-      for (const im of [legs, torso, head, hat]) { im.castShadow = settings.quality > 0; im.computeBoundingSphere(); g.add(im); }
+      g.add(GolfNature.buildCrowd(people, 5 + index, settings.quality > 0));
     }
   }
   // Stadium holes (par 3s and the final hole) get a grandstand beside the green with a gallery in it.
@@ -725,19 +693,12 @@ function buildHole(index, env, weather) {
     for (const xx of [-20, -7, 7, 20]) { const post2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 11.5, 8), grey); post2.position.set(xx, 5.75, -10.5); stand.add(post2); }
     const front = new THREE.Mesh(new THREE.BoxGeometry(42, 1.2, 0.2), white);
     front.position.set(0, 0.6, 1.0); stand.add(front);
-    // Gallery: simple figures with varied shirts, seated along the tiers.
-    const people = [];
+    // Gallery: seated spectators along the tiers.
+    const seats = [];
     let ps = 99 + index;
     const pr = () => { ps = (ps * 1664525 + 1013904223) >>> 0; return ps / 4294967296; };
-    for (let tier = 0; tier < 6; tier++) for (let k = 0; k < 34; k++) if (pr() < 0.82) people.push([-20 + k * 1.2 + pr() * 0.3, 1.1 + tier * 1.1, -tier * 1.8 + 0.2]);
-    const body = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.22, 0.45, 4, 8), new THREE.MeshLambertMaterial(), people.length);
-    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.13, 8, 6), new THREE.MeshLambertMaterial(), people.length);
-    const m4 = new THREE.Matrix4(), c3 = new THREE.Color(), shirts = [0xe63946, 0x1d6fb8, 0xf4f4f4, 0xf2c14e, 0x2a9d8f, 0x6c4ab6, 0xff8c42, 0x222831], skins = [0xf1c27d, 0xc68642, 0x8d5524, 0xe0ac69, 0xffdbac];
-    people.forEach(([x, y, z], k) => {
-      body.setMatrixAt(k, m4.makeTranslation(x, y + 0.45, z)); body.setColorAt(k, c3.set(shirts[Math.floor(pr() * shirts.length)]));
-      head.setMatrixAt(k, m4.makeTranslation(x, y + 0.98, z)); head.setColorAt(k, c3.set(skins[Math.floor(pr() * skins.length)]));
-    });
-    stand.add(body, head);
+    for (let tier = 0; tier < 6; tier++) for (let k = 0; k < 34; k++) if (pr() < 0.85) seats.push([-20 + k * 1.2 + pr() * 0.3, -(-tier * 1.8 + 0.3), 1.1 + tier * 1.1, 0, true]);
+    stand.add(GolfNature.buildCrowd(seats, 77 + index, settings.quality > 1));
     stand.position.set(px, core.ng_height(index, px, py) - 0.2, -py);
     stand.rotation.y = face + Math.PI;
     g.add(stand);
@@ -842,14 +803,20 @@ function initActors() {
   actors.readGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * 300), 3));
   actors.read = new THREE.Line(actors.readGeo, new THREE.LineBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.85 }));
   actors.read.frustumCulled = false;
-  actors.ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 40), new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+  {   // Landing marker: a soft, faint disc on the ground rather than a hard ring.
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const g2 = cv.getContext('2d'), gr = g2.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,0.0)'); gr.addColorStop(0.62, 'rgba(255,255,255,0.10)'); gr.addColorStop(0.82, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g2.fillStyle = gr; g2.fillRect(0, 0, 128, 128);
+    actors.ring = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, opacity: 0.8 }));
+  }
   actors.ring.rotation.x = -Math.PI / 2;
 
   const steel = new THREE.MeshLambertMaterial({ color: 0xb8bcc2 });
   actors.club = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 1, 6), steel);
   actors.head = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.07), new THREE.MeshLambertMaterial({ color: 0x23262b }));
   actors.club.castShadow = true;
-  actors.arc = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x46b4ff, transparent: true, opacity: 0.75, depthWrite: false, fog: false }));
+  actors.arc = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.38, depthWrite: false, fog: false }));
   actors.arc.frustumCulled = false;
   const beamGeo = new THREE.CylinderGeometry(0.22, 0.22, 40, 10, 1, true);
   const bc = new Float32Array(beamGeo.attributes.position.count * 3);
@@ -1763,11 +1730,11 @@ function refreshAids() {
       for (let i = 0; i < np; i += every) pts.push(new THREE.Vector3(pb[i * 3], pb[i * 3 + 2] + 0.05, -pb[i * 3 + 1]));
       pts.push(new THREE.Vector3(pb[(np - 1) * 3], pb[(np - 1) * 3 + 2] + 0.05, -pb[(np - 1) * 3 + 1]));
       if (actors.arc.geometry) actors.arc.geometry.dispose();
-      actors.arc.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(120, pts.length * 2), 0.09, 6, false);
+      actors.arc.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(120, pts.length * 2), 0.035, 5, false);
       actors.arc.visible = true;
       const land = pts[pts.length - 1];
       actors.beam.position.set(land.x, land.y + 20, land.z);
-      actors.beam.visible = true;
+      actors.beam.visible = false;                         // no light column: it was distracting
       game.labelLand = { pos: land.clone(), carry: buf(8)[6] };
     }
   }
@@ -1776,7 +1743,7 @@ function refreshAids() {
     const b = buf(10);
     if (b[6] > 1) {
       actors.ring.position.set(b[0], heightAt(b[0], b[1]) + 0.08, -b[1]);
-      const sc = Math.max(1.2, b[6] * 0.022);
+      const sc = Math.max(1.0, b[6] * 0.015);
       actors.ring.scale.set(sc, sc, sc);
       actors.ring.visible = true;
       game.preview = { carry: b[6], total: b[7] };
@@ -1967,7 +1934,9 @@ function frame(ms) {
   actors.shadow.scale.setScalar(scale * (1 + Math.min(3, (ball.y - gh) * 0.08)));
   const aiming = game.mode === 'aim' || game.mode === 'swing';
   if (!aiming) { actors.aim.visible = false; actors.ring.visible = false; actors.read.visible = false; actors.arc.visible = false; actors.beam.visible = false; }
-  placeWorldLabels(aiming && !game.overhead);
+  if (game.mode === 'swing') { actors.arc.visible = false; actors.ring.visible = false; actors.aim.visible = false; }   // clear view while swinging
+  else if (game.mode === 'aim' && game.club !== PUTTER && settings.swingDifficulty <= 1) { actors.arc.visible = !!game.labelLand; actors.ring.visible = !!game.labelLand; }
+  placeWorldLabels(game.mode === 'aim' && !game.overhead);
   // The putting camera sits where the golfer would stand, so the figure is only drawn for full shots.
   const showGolfer = aiming || (game.mode === 'flight' && game.playT < (game.outcome && game.outcome.putt ? 0.9 : 1.4));
   poseDt = dt;

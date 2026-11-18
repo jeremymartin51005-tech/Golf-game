@@ -17,12 +17,12 @@ function limbGeometry(r0, r1, segs) {
   for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + (i / n) * Math.PI / 2; pts.push(new THREE.Vector2(Math.cos(a) * r0, (Math.sin(a) + 1) * r0 * 0.6)); }
   for (let i = 1; i < 8; i++) { const t = i / 8; const r = r0 + (r1 - r0) * t + Math.sin(t * Math.PI) * (r0 + r1) * 0.06; pts.push(new THREE.Vector2(r, r0 * 0.6 + t * (1 - 0.6 * (r0 + r1)))); }
   for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI / 2; pts.push(new THREE.Vector2(Math.cos(a) * r1, 1 - 0.6 * r1 + Math.sin(a) * r1 * 0.6)); }
-  return new THREE.LatheGeometry(pts, segs || 14);
+  return new THREE.LatheGeometry(pts, segs || 22);
 }
 // Torso shell from waist (y=0) to base of neck (y=1); radius in units of half shoulder width.
 function torsoGeometry(profile) {
   const pts = profile.map(([r, y]) => new THREE.Vector2(r, y));
-  return new THREE.LatheGeometry(pts, 24);
+  return new THREE.LatheGeometry(pts, 36);
 }
 function place(mesh, a, b) {          // orient a unit +Y mesh from point a to point b
   const d = V3().subVectors(b, a);
@@ -72,7 +72,10 @@ class GolferRig {
     this.group = new THREE.Group();
     scene.add(this.group);
     const L = look, b = L.build;
-    const std = (c, r, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: r === undefined ? 0.8 : r, metalness: 0 }, extra || {}));
+    // Physical materials: fabrics get a soft sheen at grazing angles, skin a warm sheen that reads as
+    // light scattering under the surface.
+    const std = (c, r, extra) => new THREE.MeshPhysicalMaterial(Object.assign({ color: c, roughness: r === undefined ? 0.8 : r, metalness: 0,
+      sheen: (r === undefined ? 0.8 : r) > 0.6 ? 0.6 : 0.25, sheenRoughness: 0.6, sheenColor: new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.5) }, extra || {}));
     this.mat = {
       skin: std(L.skin, 0.55, { emissive: new THREE.Color(L.skin).multiplyScalar(0.06) }),
       shirt: std(L.shirt, 0.85), trousers: std(L.trousers, 0.8, L.trouserCheck ? { map: checkTexture(L.trousers) } : undefined), shoe: std(L.shoe || 0xf4f4f2, 0.5), sole: std(0x2a2a2a, 0.9),
