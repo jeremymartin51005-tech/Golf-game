@@ -30,6 +30,7 @@ function terrainMaterial(map, surfaceIds) {
     uGridCenter: { value: new THREE.Vector2() },
     uSunDirW: { value: new THREE.Vector3(-0.55, 0.8, 0.35).normalize() },
     uStripeDir: { value: new THREE.Vector2(0, 1) },
+    uTexel: { value: new THREE.Vector2(1 / 1024, 1 / 1024) },
   };
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.93, metalness: 0 });
   mat.onBeforeCompile = (sh) => {
@@ -42,6 +43,7 @@ uniform float uGrid;
 uniform vec2 uGridCenter;
 uniform vec3 uSunDirW;
 uniform vec2 uStripeDir;
+uniform vec2 uTexel;
 varying vec3 vNgWorld;
 varying vec3 vNgNormal;
 ${NOISE}
@@ -55,6 +57,18 @@ ${NOISE}
       bool ngSand = ngSurf == 5.0;
       bool ngRough = ngSurf == 3.0 || ngSurf == 4.0 || ngSurf == 10.0;
       bool ngFair = ngSurf == 0.0 || ngSurf == 1.0 || ngSurf == 2.0;
+      // Soft surface weights from four taps, so mowing patterns and shading blend smoothly across the
+      // edge between surfaces instead of stepping along the texel grid.
+      float wStripe = 0.0, wCut = 0.0, wGreenT = 0.0, wCollar = 0.0;
+      for (int ti = 0; ti < 4; ti++) {
+        vec2 o = vec2(ti == 0 || ti == 2 ? -0.5 : 0.5, ti < 2 ? -0.5 : 0.5) * uTexel;
+        float sid = floor(texture2D(uSurf, vMapUv + o).r * 255.0 + 0.5);
+        wStripe += (sid == 0.0 || sid == 1.0) ? 0.25 : 0.0;
+        wCut += sid == 2.0 ? 0.25 : 0.0;
+        wGreenT += sid == 6.0 ? 0.25 : 0.0;
+        wCollar += sid == 7.0 ? 0.25 : 0.0;
+      }
+      float wGreenAll = wGreenT + wCollar, wFairAll = wStripe + wCut;
       {
         float n1 = ngNoise(ngWp * 0.9), n2 = ngFbm(ngWp * 0.12), n3 = ngNoise(ngWp * 6.0);
         vec3 c = diffuseColor.rgb;
@@ -62,15 +76,6 @@ ${NOISE}
           c *= 0.93 + 0.13 * n2 + 0.10 * (n3 - 0.5) * ngFine;
         } else if (ngGreen) {
           c *= 0.95 + 0.08 * n2 + 0.035 * (n3 - 0.5) * ngFine;
-          // Tournament green: smooth, even and bright with only a faint double-cut sheen that shifts with the
-          // view; the collar around it is a slightly longer, darker ring.
-          vec2 viewG = normalize(vec2(vNgWorld.x - cameraPosition.x, -(vNgWorld.z - cameraPosition.z)) + 1e-4);
-          float across = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 3.5;
-          float wq = fwidth(across) * 1.5 + 0.03;
-          float band = smoothstep(0.5 - wq, 0.5 + wq, abs(fract(across) - 0.5) * 2.0);
-          float facingG = dot(viewG, uStripeDir);
-          c *= 1.0 + (band - 0.5) * 0.045 * facingG;
-          if (ngSurf == 7.0) c *= 0.86;
         } else if (ngRough) {
           float clump = ngFbm(ngWp * 0.45);
           c *= 0.76 + 0.40 * clump;
@@ -78,27 +83,35 @@ ${NOISE}
           c *= 1.0 + 0.12 * (n3 - 0.5) * ngFine;
         } else if (ngFair) {
           c *= 0.92 + 0.14 * n2 + 0.06 * (n1 - 0.5) + 0.05 * (n3 - 0.5) * ngFine;
-          // Mowing stripes down the hole, with a soft cross-cut, sharp at any distance (antialiased).
-          if (ngSurf == 1.0 || ngSurf == 0.0) {
-            float across = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 7.0;
-            float w = fwidth(across) * 1.5 + 0.02;
-            float band = smoothstep(0.5 - w, 0.5 + w, abs(fract(across) - 0.5) * 2.0);
-            float cross = smoothstep(0.5 - w, 0.5 + w, abs(fract(dot(ngWp, uStripeDir) / 9.0) - 0.5) * 2.0);
-            // Real stripes are blades laid in opposite directions, so light and dark swap with the view.
-            vec2 viewXZ = normalize(vec2(vNgWorld.x - cameraPosition.x, -(vNgWorld.z - cameraPosition.z)) + 1e-4);
-            float facing = clamp(dot(viewXZ, uStripeDir) * 1.4, -1.0, 1.0);
-            float s1 = mix(1.10, 0.90, band), s2 = mix(0.92, 1.08, band);
-            c *= mix(s2, s1, facing * 0.5 + 0.5) * mix(1.025, 0.975, cross);
-          } else {
-            c *= 1.06;                                                 // first cut: a lighter ring around the fairway
-          }
+        }
+        vec2 viewXZ = normalize(vec2(vNgWorld.x - cameraPosition.x, -(vNgWorld.z - cameraPosition.z)) + 1e-4);
+        if (wStripe > 0.0) {
+          // Mowing stripes down the hole with a soft cross-cut; blades laid in opposite directions,
+          // so light and dark swap with the view. Antialiased at any distance.
+          float across = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 7.0;
+          float w = fwidth(across) * 1.5 + 0.02;
+          float band = smoothstep(0.5 - w, 0.5 + w, abs(fract(across) - 0.5) * 2.0);
+          float cross = smoothstep(0.5 - w, 0.5 + w, abs(fract(dot(ngWp, uStripeDir) / 9.0) - 0.5) * 2.0);
+          float facing = clamp(dot(viewXZ, uStripeDir) * 1.4, -1.0, 1.0);
+          float s1 = mix(1.10, 0.90, band), s2 = mix(0.92, 1.08, band);
+          c *= mix(1.0, mix(s2, s1, facing * 0.5 + 0.5) * mix(1.025, 0.975, cross), wStripe);
+        }
+        c *= mix(1.0, 1.06, wCut);                                     // first cut: a lighter ring around the fairway
+        if (wGreenAll > 0.0) {
+          // Tournament green: smooth and bright with a faint double-cut sheen that shifts with the view;
+          // the collar around it is a slightly longer, darker ring.
+          float acrossG = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 3.5;
+          float wq = fwidth(acrossG) * 1.5 + 0.03;
+          float bandG = smoothstep(0.5 - wq, 0.5 + wq, abs(fract(acrossG) - 0.5) * 2.0);
+          c *= mix(1.0, 1.0 + (bandG - 0.5) * 0.045 * dot(viewXZ, uStripeDir), wGreenT);
+          c *= mix(1.0, 0.86, wCollar);
         }
         // Relief shading: exaggerate how the sun falls across slopes so a 2% green contour or a
         // fairway swale is readable from address, the way TV coverage and good course art show it.
         {
           float lit = dot(normalize(vNgNormal), uSunDirW) - uSunDirW.y;
           float side = dot(normalize(vNgNormal).xz, vec2(0.7071, 0.7071));           // a soft second light
-          float k = ngGreen ? 8.0 : (ngFair ? 4.0 : ngSand ? 3.2 : 1.6);
+          float k = 1.6 + wGreenAll * 6.4 + wFairAll * 2.4 + (ngSand ? 1.6 : 0.0);
           c *= clamp(1.0 + (lit + 0.5 * side) * k, 0.62, 1.38);
         }
         // Steep banks dry out a little.

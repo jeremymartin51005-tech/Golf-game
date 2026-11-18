@@ -28,6 +28,13 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Image clarity pass (tenth session)
+
+Surface edges (green, collar, fairway, bunkers) are smoothed in the ground texture and blended in the
+shader, so they are soft curves rather than stair steps; Quality and Ultra use a 25 cm ground
+texture, 16x texture filtering and 4096 shadow maps; foliage edges are antialiased with
+alpha-to-coverage.
+
 ## Scenery detail pass (ninth session)
 
 Trees are now crowns of many crossed, tilted leaf-cluster cards (hundreds of individual leaves per

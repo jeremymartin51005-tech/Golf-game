@@ -89,7 +89,8 @@ function buildTrees(trees, count, opts) {
   const group = new THREE.Group();
   const pine = !!opts.pine;
   const tex = foliageTexture(pine ? 'pine' : 'leaf');
-  const leafMat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.42, side: THREE.DoubleSide });
+  // alphaToCoverage: with multisampling, leaf edges are antialiased instead of jagged cut-outs.
+  const leafMat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.42, alphaToCoverage: true, side: THREE.DoubleSide });
   if (opts.sway) opts.sway(leafMat);
   const r = rng(opts.seed || 1);
   const clumps = [], trunks = [], branches = [];

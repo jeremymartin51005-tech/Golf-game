@@ -163,7 +163,7 @@ function applyQuality() {
   // Real-time shadows near the ball on Balanced and Quality; Performance relies on the painted ones.
   renderer.shadowMap.enabled = settings.quality > 0;
   if (world.sun) {
-    const size = [1024, 1024, 2048, 4096][settings.quality];
+    const size = [1024, 2048, 4096, 4096][settings.quality];
     if (world.sun.shadow.mapSize.x !== size) { world.sun.shadow.mapSize.set(size, size); if (world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } }
   }
   scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
@@ -285,7 +285,7 @@ function buildHole(index, env, weather) {
   const trees = Array.from(buf(nTrees * 5));
 
   // Terrain texture from the core's surface map.
-  const res = settings.quality >= 3 ? 0.25 : 0.5;          // Ultra: 25 cm ground texture for crisp detail at 4K
+  const res = settings.quality >= 2 ? 0.25 : 0.5;          // Quality and Ultra: 25 cm ground texture
   const mapPtr = core.ng_surface_map(index, res);
   const mw = buf(2)[0], mh = buf(2)[1];
   const map = new Uint8Array(core.memory.buffer, mapPtr, mw * mh).slice();
@@ -320,6 +320,20 @@ function buildHole(index, env, weather) {
       px[i] = c[0] + n; px[i + 1] = c[1] + n; px[i + 2] = c[2] + n; px[i + 3] = 255;
     }
   }
+  // Smooth the boundaries between surfaces: texels on an edge take the average of their 3x3
+  // neighbourhood, so green, collar, fairway and bunker outlines are soft curves, not stair steps.
+  {
+    const src = new Uint8ClampedArray(px);
+    for (let y = 1; y < mh - 1; y++) for (let x = 1; x < mw - 1; x++) {
+      const s0 = map[y * mw + x];
+      if (map[y * mw + x - 1] === s0 && map[y * mw + x + 1] === s0 && map[(y - 1) * mw + x] === s0 && map[(y + 1) * mw + x] === s0) continue;
+      for (let ch = 0; ch < 3; ch++) {
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum += src[((y + dy) * mw + x + dx) * 4 + ch];
+        px[(y * mw + x) * 4 + ch] = sum / 9;
+      }
+    }
+  }
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = 'rgba(10,30,14,0.30)';
   for (let t = 0; t < nTrees; t++) {
@@ -330,11 +344,12 @@ function buildHole(index, env, weather) {
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.flipY = false;
-  tex.anisotropy = Math.min(settings.quality >= 3 ? 16 : 8, renderer.capabilities.getMaxAnisotropy());
+  tex.anisotropy = Math.min(settings.quality >= 2 ? 16 : 8, renderer.capabilities.getMaxAnisotropy());
   if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
   const ids = new THREE.DataTexture(new Uint8Array(map), mw, mh, THREE.RedFormat, THREE.UnsignedByteType);
   ids.magFilter = THREE.NearestFilter; ids.minFilter = THREE.NearestFilter; ids.flipY = false; ids.needsUpdate = true;
   const terrainMat = GolfShaders.terrainMaterial(tex, ids);
+  terrainMat.userData.uniforms.uTexel.value.set(1 / mw, 1 / mh);
   {   // Mowing direction: down the first leg of the hole (tee toward the first landing area).
     const n = info[25], ax = info[26], ay = info[27], bx = info[26 + 2 * Math.min(1, n - 1)], by = info[27 + 2 * Math.min(1, n - 1)];
     const l = Math.hypot(bx - ax, by - ay) || 1;
