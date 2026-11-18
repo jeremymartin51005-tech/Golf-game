@@ -22,15 +22,28 @@
   #hudShot .row b { color:var(--ink); font-weight:600; }
   #hudHelp { bottom:14px; right:14px; color:var(--dim); font-size:12.5px; max-width:340px; text-align:right; }
   #hudHelp kbd { background:rgba(255,255,255,.14); border-radius:4px; padding:0 5px; color:var(--ink); font:inherit; }
-  #meter { bottom:18px; left:50%; transform:translateX(-50%); width:300px; text-align:center; }
-  #meterBar { position:relative; height:16px; border-radius:8px; background:rgba(0,0,0,.45); border:1px solid var(--line); overflow:hidden; }
-  #meterFill { position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg,#6fbf73,#e8c65a 80%,#ef7d6b); }
-  #meterMark { position:absolute; top:-3px; bottom:-3px; width:2px; background:#fff; left:100%; margin-left:-2px; opacity:.8; }
-  #meterAcc { position:absolute; top:0; bottom:0; width:3px; background:#fff; display:none; }
-  #pathTrack { position:relative; height:10px; margin-top:6px; border-radius:5px; background:rgba(0,0,0,.35); border:1px solid var(--line); }
-  #pathDot { position:absolute; top:1px; width:8px; height:6px; border-radius:3px; background:#fff; left:50%; margin-left:-4px; }
-  #pathTrack::after { content:""; position:absolute; left:50%; top:-2px; bottom:-2px; width:1px; background:rgba(255,255,255,.5); }
-  #meterText { margin-top:6px; font-size:13px; color:var(--dim); min-height:18px; }
+  /* Swing gauge: one vertical capsule on the right. */
+  #meter { right:46px; top:50%; transform:translateY(-38%); width:150px; height:340px; }
+  #mPrompt { position:absolute; right:0; top:-62px; width:280px; text-align:right; font-weight:700; font-size:17px; letter-spacing:.3px; transition:opacity .2s; }
+  #mPrompt small { display:block; font-weight:400; font-size:12px; color:var(--dim); white-space:nowrap; }
+  #mCap { position:absolute; right:0; top:0; width:30px; height:280px; border-radius:15px; background:rgba(8,16,11,.62); border:1px solid rgba(255,255,255,.22); box-shadow:0 6px 24px rgba(0,0,0,.35), inset 0 0 0 3px rgba(0,0,0,.25); overflow:hidden; }
+  #mOver { position:absolute; left:0; right:0; top:0; height:9.1%; background:repeating-linear-gradient(135deg, rgba(239,93,72,.55) 0 5px, rgba(239,93,72,.25) 5px 10px); }
+  #mFill { position:absolute; left:4px; right:4px; bottom:4px; height:0; border-radius:11px; background:linear-gradient(0deg, #f6f6ee 0%, #ffe28a 70%, #ffc94a 100%); box-shadow:0 0 14px rgba(255,214,102,.65); }
+  #mFill.over { background:linear-gradient(0deg, #f6f6ee 0%, #ff9a7a 75%, #ef5d48 100%); box-shadow:0 0 16px rgba(239,93,72,.8); }
+  #mZone { position:absolute; left:-1px; right:-1px; height:14px; border:2px solid #6ff09a; border-radius:8px; box-shadow:0 0 12px rgba(111,240,154,.8), inset 0 0 8px rgba(111,240,154,.5); transition:bottom .25s ease; }
+  #mZone.hit { background:rgba(111,240,154,.35); }
+  .mTick { position:absolute; left:0; width:8px; height:2px; background:rgba(255,255,255,.4); }
+  #mCarry { position:absolute; right:40px; width:110px; text-align:right; font-weight:700; font-size:15px; text-shadow:0 1px 3px rgba(0,0,0,.8); transform:translateY(50%); white-space:nowrap; }
+  #mCarry small { font-weight:400; color:var(--dim); font-size:11px; display:block; }
+  #mZoneLbl { position:absolute; right:40px; font-size:11px; font-weight:700; color:#6ff09a; letter-spacing:.8px; transform:translateY(50%); transition:bottom .25s ease; }
+  #mTempo { position:absolute; right:-10px; top:292px; width:150px; height:8px; border-radius:4px; background:linear-gradient(90deg, rgba(239,93,72,.75), rgba(255,214,102,.75) 30%, #6ff09a 42% 58%, rgba(255,214,102,.75) 70%, rgba(239,93,72,.75)); opacity:.9; }
+  #mTempoDot { position:absolute; top:-5px; width:14px; height:14px; margin-left:-7px; border-radius:7px; background:#fff; box-shadow:0 0 0 3px rgba(0,0,0,.4); left:50%; transition:left .35s cubic-bezier(.2,.9,.3,1.2), opacity .2s; }
+  #mTempoLbl { position:absolute; right:-10px; top:304px; width:150px; display:flex; justify-content:space-between; font-size:10.5px; color:var(--dim); letter-spacing:.6px; }
+  #mGrade { position:absolute; right:-14px; top:326px; min-width:120px; padding:5px 12px; border-radius:16px; text-align:center; font-weight:800; font-size:15px; letter-spacing:1.4px; color:#10170f; background:#6ff09a; transform:scale(0); transition:transform .3s cubic-bezier(.2,1.6,.4,1); }
+  #mGrade.show { transform:scale(1); }
+  #mPath { position:absolute; right:42px; top:252px; width:26px; height:26px; opacity:.85; transition:transform .3s ease; }
+  #hudHelp .more { display:none; }
+  #hudHelp.full .more { display:block; }
   #result { top:22%; left:50%; transform:translateX(-50%); min-width:320px; max-width:460px; text-align:center; display:none; }
   #result h2 { margin:0 0 2px; font-size:26px; }
   #result .nums { font-size:17px; margin-bottom:6px; }
@@ -88,9 +101,15 @@
 </div>
 <div id="hudHelp" class="hud"></div>
 <div id="meter" class="hud" style="display:none">
-  <div id="meterBar"><div id="meterFill"></div><div id="meterMark"></div><div id="meterAcc"></div></div>
-  <div id="pathTrack"><div id="pathDot"></div></div>
-  <div id="meterText"></div>
+  <div id="mPrompt"></div>
+  <div id="mCap"><div id="mOver"></div><div class="mTick" style="bottom:25%"></div><div class="mTick" style="bottom:50%"></div><div class="mTick" style="bottom:75%"></div><div id="mFill"></div><div id="mZone"></div></div>
+  <div id="mZoneLbl">PERFECT</div>
+  <div id="mCarry"></div>
+  <svg id="mPath" viewBox="-13 -13 26 26"><circle r="12" fill="rgba(8,16,11,.6)" stroke="rgba(255,255,255,.25)"/><path d="M0,8 L0,-7 M-4,-3 L0,-8 L4,-3" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+  <div id="mTempo"><div id="mTempoDot"></div></div>
+  <div id="mTempoLbl"><span>FAST</span><span>TEMPO</span><span>SLOW</span></div>
+  <div id="mGrade"></div>
+</div>
 </div>
 <div id="result" class="hud card"></div>
 <div id="banner" class="hud"></div>

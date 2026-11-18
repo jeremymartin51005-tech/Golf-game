@@ -14,17 +14,18 @@ FLinearColor AGolfHoleActor::SurfaceColor(golf::Surface Surface)
 {
 	switch (Surface)
 	{
-		case golf::Surface::Tee:        return FLinearColor(0.10f, 0.31f, 0.08f);
-		case golf::Surface::Fairway:    return FLinearColor(0.12f, 0.36f, 0.08f);
-		case golf::Surface::FirstCut:   return FLinearColor(0.09f, 0.28f, 0.06f);
-		case golf::Surface::Rough:      return FLinearColor(0.06f, 0.20f, 0.05f);
-		case golf::Surface::DeepRough:  return FLinearColor(0.04f, 0.14f, 0.04f);
-		case golf::Surface::Sand:       return FLinearColor(0.78f, 0.66f, 0.38f);
-		case golf::Surface::Green:      return FLinearColor(0.18f, 0.50f, 0.13f);
-		case golf::Surface::Fringe:     return FLinearColor(0.14f, 0.40f, 0.09f);
-		case golf::Surface::HardGround: return FLinearColor(0.30f, 0.27f, 0.20f);
-		case golf::Surface::Water:      return FLinearColor(0.03f, 0.14f, 0.30f);
-		default:                        return FLinearColor(0.04f, 0.11f, 0.03f);
+		// Linear-space colours for a bright, saturated, easy-to-read course (same palette as the browser build).
+		case golf::Surface::Tee:        return FLinearColor(0.14f, 0.53f, 0.055f);
+		case golf::Surface::Fairway:    return FLinearColor(0.12f, 0.51f, 0.042f);
+		case golf::Surface::FirstCut:   return FLinearColor(0.08f, 0.38f, 0.031f);
+		case golf::Surface::Rough:      return FLinearColor(0.034f, 0.23f, 0.023f);
+		case golf::Surface::DeepRough:  return FLinearColor(0.021f, 0.15f, 0.018f);
+		case golf::Surface::Sand:       return FLinearColor(0.95f, 0.85f, 0.58f);
+		case golf::Surface::Green:      return FLinearColor(0.17f, 0.67f, 0.09f);
+		case golf::Surface::Fringe:     return FLinearColor(0.12f, 0.55f, 0.055f);
+		case golf::Surface::HardGround: return FLinearColor(0.39f, 0.30f, 0.18f);
+		case golf::Surface::Water:      return FLinearColor(0.013f, 0.19f, 0.40f);
+		default:                        return FLinearColor(0.021f, 0.16f, 0.019f);
 	}
 }
 
@@ -46,7 +47,23 @@ namespace
 				V.Add(UGolfShotComponent::ToUnreal({P.x, P.y, Hole.height(P)}));
 				N.Add(FVector(Nn.y, Nn.x, Nn.z));
 				UV.Add(FVector2D((P.x - Hole.gridMin.x) / W, (P.y - Hole.gridMin.y) / H));
-				C.Add(AGolfHoleActor::SurfaceColor(Hole.surface(P)));
+				const golf::Surface Surf = Hole.surface(P);
+				FLinearColor Col = AGolfHoleActor::SurfaceColor(Surf);
+				if (Surf == golf::Surface::Fairway)
+				{
+					// Mowing stripes 7 m wide down the first leg of the hole.
+					const golf::Vec2 Dir = (Hole.centerline[1] - Hole.centerline[0]).normalized();
+					const double Across = (P.x * Dir.y - P.y * Dir.x) / 7.0;
+					Col *= (int64(FMath::FloorToDouble(Across)) & 1) ? 0.88f : 1.1f;
+					Col.A = 1.f;
+				}
+				else if (Surf == golf::Surface::Green)
+				{
+					const double Q = (P.x + P.y) / 3.7, R = (P.y - P.x) / 3.7;   // diagonal checkerboard
+					Col *= ((int64(FMath::FloorToDouble(Q)) + int64(FMath::FloorToDouble(R))) & 1) ? 0.93f : 1.07f;
+					Col.A = 1.f;
+				}
+				C.Add(Col);
 			}
 		}
 		for (int32 IY = 0; IY < Rows - 1; ++IY)

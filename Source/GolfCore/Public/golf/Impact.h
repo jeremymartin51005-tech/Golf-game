@@ -42,6 +42,13 @@ struct Launch {
     double faceToPathDeg = 0;
 };
 
+// Slope of the ground the ball sits on, relative to the shot. Uphill lies launch higher and fly
+// shorter; downhill lies come out lower. Ball above the feet starts and curves left (for a right-
+// hander), ball below the feet goes right. Percent grade.
+struct LieSlope { double uphillPct = 0; double ballAboveFeetPct = 0; };
+LieSlope lieSlopeAt(const ITerrain& terrain, Vec2 ball, double aimDeg, bool leftHanded = false);
+void applyLieSlope(Launch& launch, const LieSlope& slope, bool leftHanded = false);
+
 // Named shape of a finished shot, derived from physics, for the HUD ("Push Draw").
 const char* describeShape(double startAzimuthDeg, double spinAxisDeg, bool leftHanded = false);
 

@@ -1,4 +1,4 @@
-# Status report (2026-11-17, fourth session)
+# Status report (2026-11-18, fifth session)
 
 ## Summary
 
@@ -27,6 +27,36 @@ automated tests, including a scripted browser session, not by a person judging h
   statistics (average, best, fairways, greens, putts, daily streak).
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
+
+## Visual and swing-UI upgrade (fifth session)
+
+Scope was limited to four items. **No Unreal Engine was available** (no Unreal install in this
+container and no computer attached), so the Unreal-side code below is written but uncompiled and
+untested; everything else was built and tested in the browser game.
+
+- **Bright, colourful course look.** Saturated palette with each surface clearly distinct; crisp
+  mowing stripes down each hole and a cross-cut drawn in the terrain shader; a diagonal checkerboard
+  cut and darker collar on greens; lighter first cut; brilliant sand; turquoise water; lighter haze
+  in every weather; flowering shrubs at the edges of play (kept 32 m clear of the line of play) and
+  flower beds framing the tee; stronger colour grade. Unreal: the same palette, fairway stripes and
+  green checkerboard in the terrain vertex colours.
+- **Swing gauge redesigned.** One vertical capsule replaces the old bar, path track and text: smooth
+  power fill, a glowing perfect zone at the power that reaches the pin (or a full swing when it is out
+  of reach; on putts, the pace for the read), a live carry/roll readout riding the fill, step-by-step
+  prompts, a tempo strip with a dot, and a grade badge (PERFECT, GREAT, GOOD, EARLY, LATE, THIN, FAT,
+  OVERSWING, PULLED, PUSHED). The control legend is now one line with `H` for the full list.
+  Unreal: an equivalent Slate widget (`SGolfSwingMeter`) added to the viewport by the player pawn.
+- **Sloped fairways (core, shared by both builds).** Each landing area has a sidehill cross-slope
+  (1.8-4.2%), most holes have a crest or hollow down the fairway, rolling ground and tee-to-green
+  elevation ranges were increased. The lie now affects the shot: uphill lies launch higher, downhill
+  lower, ball above the feet starts left and draws (for a right-hander), below the feet right and fades.
+  The shot panel shows the lie, for example "Fairway · Uphill 3% · Ball above feet 2%". In a sample of
+  52 landing areas: 13 uphill, 23 downhill, 45 sidehill (over 1.5%).
+- **Big Chef reworked.** Original character: natural proportions, pleated toque, double-breasted
+  jacket with two rows of buttons, neckerchief, apron with waist ties, check trousers, black clogs,
+  and a noticeably fuller, rounder seat silhouette. The Unreal project has no character system yet,
+  so this exists only in the browser build.
+- Fixed: the golfer's front and back were swapped for chest-mounted details (buttons, apron).
 
 ## Golfer, spin and graphics update (fourth session)
 
@@ -68,7 +98,7 @@ automated tests, including a scripted browser session, not by a person judging h
 
 | What | Result |
 |---|---|
-| Core unit tests | 47 of 47 pass (new this session: spin control, spin-back) |
+| Core unit tests | 49 of 49 pass (new this session: lie-slope effects; uphill, downhill and sidehill landing areas) |
 | Native (gcc, x86) vs WebAssembly (clang) | 12 generated courses identical |
 | Browser: real pointer events at a mouse's report rate through the swing | Works (pull back, push through, strike; release early backs off). In this container the software renderer blocks the page for ~100 ms per frame, so this test skips drawing while it streams input |
 | Browser: classic and assisted swings, club/shot keys, pause, settings | Work |

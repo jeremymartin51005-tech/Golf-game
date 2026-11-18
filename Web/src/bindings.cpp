@@ -93,7 +93,7 @@ int strikeWith(const SwingResult& sw, int club, int type, int style, double curv
         if (!shotTypeAllowed(in.type, id, gPlay->lie())) in.type = ShotType::Normal;
         gLastLaunch = computeLaunch(sw, id, in, gPlay->lie(), gAttr, gPlay->conditions().wetness, gSettings.leftHanded);
         gLastWasPutt = false;
-        storeOutcome(gPlay->playShot(gLastLaunch, aimDeg));
+        storeOutcome(gPlay->playShot(gLastLaunch, aimDeg, gSettings.leftHanded));
     }
     return 1;
 }
@@ -325,9 +325,18 @@ void EXPORT(ng_preview)(int club, int type, int style, double curve, double traj
     SwingSettings s = SwingSettings::forDifficulty(SwingDifficulty::Simulation);
     Launch L = computeLaunch(classicMeterSwing(power, 0.0, s, gAttr), id, in, gPlay->lie(), gAttr, gPlay->conditions().wetness, gSettings.leftHanded);
     FlightParams fp; fp.dt = 1.0 / 120.0; fp.recordPath = false;
+    if (gPlay->lie() != Surface::Tee) applyLieSlope(L, gPlay->lieSlope(aimDeg, gSettings.leftHanded), gSettings.leftHanded);
     ShotOutcome o = simulateShot(L, gPlay->ball(), aimDeg, gPlay->hole(), gPlay->conditions(), {}, fp);
     b[0] = o.landing.x; b[1] = o.landing.y; b[2] = o.landing.z; b[3] = o.rest.x; b[4] = o.rest.y; b[5] = o.rest.z;
     b[6] = o.carry; b[7] = o.total; b[8] = o.apex; b[9] = int(o.reason);
+}
+
+// Slope of the current lie along the given aim: gBuf[0] uphill %, gBuf[1] ball above feet %.
+void EXPORT(ng_lie_slope)(double aimDeg) {
+    gBuf[0] = gBuf[1] = 0;
+    if (!gPlay || gPlay->lie() == Surface::Tee || gPlay->lie() == Surface::Green) return;
+    LieSlope s = gPlay->lieSlope(aimDeg, gSettings.leftHanded);
+    gBuf[0] = s.uphillPct; gBuf[1] = s.ballAboveFeetPct;
 }
 
 int EXPORT(ng_shot_allowed)(int type, int club) {

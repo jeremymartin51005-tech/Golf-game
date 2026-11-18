@@ -54,7 +54,7 @@ class PostFX {
           c = filmic(c * uExposure);
           // Grade: a touch more saturation, warm highlights and cool shadows, soft S-curve.
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          c = mix(vec3(l), c, 1.1);
+          c = mix(vec3(l), c, 1.24);                                     // vivid, but not neon
           c += (vec3(0.02, 0.01, -0.015) * smoothstep(0.4, 1.0, l) + vec3(-0.01, 0.0, 0.012) * (1.0 - smoothstep(0.0, 0.35, l))) * (1.0 + uWarmth);
           c = mix(c, c * c * (3.0 - 2.0 * c), 0.18);
           vec2 q = vUv - 0.5;

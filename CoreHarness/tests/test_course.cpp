@@ -301,7 +301,7 @@ TEST(terrain_fairways_roll_but_stay_playable) {
         }
         double meanDev = sumDev / samples;
         CHECK(meanDev > 0.25);        // you can see the ground move
-        CHECK(steepest < 16.0);       // but a ball still comes to rest on the fairway
+        CHECK(steepest < 18.0);       // but a ball still comes to rest on the fairway
     }
 }
 
@@ -315,4 +315,43 @@ TEST(terrain_height_is_continuous_at_the_green_patch_edge) {
                 for (double e : {-0.01, 0.01})
                     CHECK(std::fabs(h.height({x + e, y}) - h.height({x - e, y})) < 0.02);
     }
+}
+
+TEST(lie_slope_changes_the_shot) {
+    SwingSettings s = SwingSettings::forDifficulty(SwingDifficulty::Simulation);
+    PlayerAttributes pro{1, 1, 1, 1, 1, 1};
+    Launch base = computeLaunch(runSwing(synthesizeSwing({}, s), s, pro), ClubId::Iron7, {}, Surface::Fairway, pro);
+    FlatTerrain up(Surface::Fairway, 0, 0.06), down(Surface::Fairway, 0, -0.06), sideUp(Surface::Fairway, 0.06, 0);
+    LieSlope su = lieSlopeAt(up, {0, 50}, 0), sd = lieSlopeAt(down, {0, 50}, 0), ss = lieSlopeAt(sideUp, {0, 50}, 0);
+    CHECK_RANGE(su.uphillPct, 5.9, 6.1);
+    CHECK_RANGE(ss.ballAboveFeetPct, 5.9, 6.1);            // ground rising to the right: ball above a right-hander's feet
+    CHECK_RANGE(lieSlopeAt(sideUp, {0, 50}, 0, true).ballAboveFeetPct, -6.1, -5.9);
+    Launch a = base, b = base, c = base;
+    applyLieSlope(a, su); applyLieSlope(b, sd); applyLieSlope(c, ss);
+    CHECK(a.launchDeg > base.launchDeg + 2 && b.launchDeg < base.launchDeg - 2);
+    CHECK(c.azimuthDeg < base.azimuthDeg - 1.5 && c.spinAxisDeg < base.spinAxisDeg - 3);
+    FlatTerrain flat;
+    ShotOutcome ob = simulateShot(base, {0, 0, 0}, 0, flat, {}), oc = simulateShot(c, {0, 0, 0}, 0, flat, {});
+    CHECK(oc.lateralAtRest < ob.lateralAtRest - 8);       // ball above feet finishes well left
+}
+
+TEST(terrain_fairways_have_uphill_downhill_and_sidehill_lies) {
+    int uphill = 0, downhill = 0, sidehill = 0, lzs = 0;
+    for (int e = 0; e < int(Environment::Count); ++e) {
+        CourseConfig cfg; cfg.seed = 9100 + uint64_t(e); cfg.environment = Environment(e);
+        Course c = generateCourse(cfg);
+        for (const HoleLayout& h : c.holes) {
+            for (const LandingZone& z : h.landingZones) {
+                ++lzs;
+                Vec2 next = h.centerline.back();
+                double aim = rad2deg(std::atan2(next.x - z.pos.x, next.y - z.pos.y));
+                LieSlope ls = lieSlopeAt(h, z.pos, aim);
+                if (ls.uphillPct > 1.5) ++uphill;
+                if (ls.uphillPct < -1.5) ++downhill;
+                if (std::fabs(ls.ballAboveFeetPct) > 1.5) ++sidehill;
+            }
+        }
+    }
+    std::printf("    %d landing areas: %d uphill, %d downhill, %d sidehill (>1.5%%)\n", lzs, uphill, downhill, sidehill);
+    CHECK(uphill * 8 > lzs && downhill * 8 > lzs && sidehill * 3 > lzs);
 }

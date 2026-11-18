@@ -30,8 +30,10 @@ double HolePlay::headingTo(Vec2 target) const {
     return rad2deg(std::atan2(d.x, d.y));
 }
 
-ShotOutcome HolePlay::playShot(const Launch& launch, double aimDeg) {
-    ShotOutcome o = simulateShot(launch, ball_, aimDeg, hole_, cond_, Cup{true, hole_.pin()});
+ShotOutcome HolePlay::playShot(const Launch& launch, double aimDeg, bool leftHanded) {
+    Launch L = launch;
+    if (lie_ != Surface::Tee) applyLieSlope(L, lieSlope(aimDeg, leftHanded), leftHanded);
+    ShotOutcome o = simulateShot(L, ball_, aimDeg, hole_, cond_, Cup{true, hole_.pin()});
     settle(o, false);
     return o;
 }
@@ -99,6 +101,7 @@ const SwingSettings& botSettings() {
 ShotOutcome trial(const HolePlay& play, const Plan& p, const PlayerAttributes& attr) {
     SwingResult sw = classicMeterSwing(p.power, 0.0, botSettings(), attr);
     Launch L = computeLaunch(sw, p.club, p.intent, play.lie(), attr, play.conditions().wetness);
+    if (play.lie() != Surface::Tee) applyLieSlope(L, play.lieSlope(p.aim));
     FlightParams fp; fp.dt = 1.0 / 120.0; fp.recordPath = false;
     return simulateShot(L, play.ball(), p.aim, play.hole(), play.conditions(), {}, fp);
 }

@@ -37,12 +37,12 @@ const EnvironmentParams& environmentParams(Environment e) {
     static const EnvironmentParams p[] = {
         // hill detail elev trees water bunk  windMin windMax tee  width alt  tMin tMax
         // hill detail elev trees water bunk  windMin windMax tee  width alt  tMin tMax  roll wave
-        {3.0, 0.5,  4.0, 1.00, 0.35, 1.0, 0.0,  5.0, 0.5, 1.00,   80, 14, 28, 0.70, 48}, // Parkland
-        {5.5, 0.8,  8.0, 0.60, 0.25, 1.2, 2.0,  7.0, 1.0, 1.00,  350, 10, 22, 0.85, 45}, // Highlands
-        {4.0, 1.2,  6.0, 0.20, 0.45, 1.0, 4.0, 10.0, 1.8, 1.05,   10, 12, 24, 0.80, 38}, // Coastal
-        {7.0, 1.0, 16.0, 1.20, 0.20, 0.9, 1.0,  6.0, 2.2, 0.90, 1500,  6, 20, 0.70, 45}, // Alpine
-        {3.0, 0.7,  5.0, 0.15, 0.10, 1.3, 1.0,  6.0, 1.0, 1.00,  600, 22, 38, 0.65, 45}, // Desert
-        {2.5, 1.3,  3.0, 0.05, 0.15, 1.5, 5.0, 11.0, 0.5, 1.10,    5,  9, 19, 0.90, 34}, // Links
+        {3.0, 0.5,  6.5, 1.00, 0.35, 1.0, 0.0,  5.0, 0.5, 1.00,   80, 14, 28, 0.95, 48}, // Parkland
+        {5.5, 0.8, 11.0, 0.60, 0.25, 1.2, 2.0,  7.0, 1.0, 1.00,  350, 10, 22, 1.10, 45}, // Highlands
+        {4.0, 1.2,  8.0, 0.20, 0.45, 1.0, 4.0, 10.0, 1.8, 1.05,   10, 12, 24, 1.05, 40}, // Coastal
+        {7.0, 1.0, 18.0, 1.20, 0.20, 0.9, 1.0,  6.0, 2.2, 0.90, 1500,  6, 20, 0.95, 45}, // Alpine
+        {3.0, 0.7,  7.0, 0.15, 0.10, 1.3, 1.0,  6.0, 1.0, 1.00,  600, 22, 38, 0.90, 45}, // Desert
+        {2.5, 1.3,  4.0, 0.05, 0.15, 1.5, 5.0, 11.0, 0.5, 1.10,    5,  9, 19, 1.15, 36}, // Links
     };
     return p[int(e)];
 }
@@ -190,6 +190,11 @@ struct TerrainDesign {
     uint64_t seed;
     double hillAmp, detailAmp, teeRaise;
     double rollAmp = 0, rollWave = 45;
+    // Shaped slopes along the hole: a cross-slope (sidehill) through each landing area, and a crest or
+    // hollow somewhere down the fairway so uphill and downhill lies are common.
+    struct Cross { double s, pct; };
+    std::vector<Cross> cross;
+    double crestS = 0, crestAmp = 0, crestWidth = 40;
     // Green contours.
     std::vector<GreenFeature> bumps;
     bool tier = false; Vec2 tierDir; double tierOffset = 0, tierHeight = 0, tierWidth = 7;
@@ -228,7 +233,11 @@ struct TerrainDesign {
         double high = detailAmp * (0.6 * noise(p, 40, seed + 2) + 0.4 * noise(p, 18, seed + 3));
         // Rolling ground through the playing corridor: mounds and swales that kick and hold a rolling ball.
         double roll = rollAmp * (0.6 * rnoise(p, rollWave, seed + 5, 0.53) + 0.4 * rnoise(p, rollWave * 0.55, seed + 6, 1.21));
-        return base + roll + low * (0.35 + 0.65 * smoothstep(0, 45, out)) + high * (0.2 + 0.8 * smoothstep(0, 15, out));
+        double side = 0;
+        for (const Cross& c : cross) side += c.pct * 0.01 * std::exp(-((s - c.s) * (s - c.s)) / (55.0 * 55.0));
+        double latSoft = 38.0 * std::tanh(lat / 38.0);                     // the hillside levels off away from play
+        double crest = crestAmp * std::exp(-((s - crestS) * (s - crestS)) / (crestWidth * crestWidth));
+        return base + roll + side * latSoft + crest + low * (0.35 + 0.65 * smoothstep(0, 45, out)) + high * (0.2 + 0.8 * smoothstep(0, 15, out));
     }
 
     void prepare() {
@@ -545,6 +554,15 @@ HoleLayout generateHole(Rng& rng, int par, int number, const CourseConfig& cfg) 
     td.teeRaise = ep.teeRaise * rng.range(0.6, 1.2);
     td.rollAmp = ep.rollAmp;
     td.rollWave = ep.rollWave;
+    for (const LandingZone& z : h.landingZones) {           // sidehill lies in the landing areas
+        double pct = rng.range(1.8, 4.2) * (rng.chance(0.5) ? 1.0 : -1.0);
+        td.cross.push_back({h.project(z.pos), pct});
+    }
+    if (par >= 4) {                                         // a crest or hollow between tee and green
+        td.crestS = rng.range(0.35, 0.8) * L;
+        td.crestAmp = rng.range(1.2, 2.6) * (rng.chance(0.6) ? 1.0 : -1.0);
+        td.crestWidth = rng.range(32, 50);
+    }
     {   // Green contours, scaled by difficulty: a tier on some greens, ridges and hollows on all.
         const Ellipse& g = h.green.shape;
         double cs = dp.greenContour;

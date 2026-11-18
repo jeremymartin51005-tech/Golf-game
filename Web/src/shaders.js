@@ -29,6 +29,7 @@ function terrainMaterial(map, surfaceIds) {
     uGrid: { value: 0 },
     uGridCenter: { value: new THREE.Vector2() },
     uSunDirW: { value: new THREE.Vector3(-0.55, 0.8, 0.35).normalize() },
+    uStripeDir: { value: new THREE.Vector2(0, 1) },
   };
   const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.93, metalness: 0 });
   mat.onBeforeCompile = (sh) => {
@@ -40,6 +41,7 @@ function terrainMaterial(map, surfaceIds) {
 uniform float uGrid;
 uniform vec2 uGridCenter;
 uniform vec3 uSunDirW;
+uniform vec2 uStripeDir;
 varying vec3 vNgWorld;
 varying vec3 vNgNormal;
 ${NOISE}
@@ -60,6 +62,13 @@ ${NOISE}
           c *= 0.93 + 0.13 * n2 + 0.10 * (n3 - 0.5) * ngFine;
         } else if (ngGreen) {
           c *= 0.95 + 0.08 * n2 + 0.035 * (n3 - 0.5) * ngFine;
+          // Tournament green: a crisp diagonal checkerboard cut, and a darker collar on the fringe.
+          vec2 q = vec2(dot(ngWp, vec2(0.7071, 0.7071)), dot(ngWp, vec2(-0.7071, 0.7071))) / 2.6;
+          vec2 fq = abs(fract(q) - 0.5);
+          float cell = mod(floor(q.x) + floor(q.y), 2.0);
+          float edge = smoothstep(0.0, 0.03, min(fq.x, fq.y));
+          c *= mix(1.0, (cell > 0.5 ? 1.07 : 0.94), edge);
+          if (ngSurf == 7.0) c *= 0.9;
         } else if (ngRough) {
           float clump = ngFbm(ngWp * 0.45);
           c *= 0.76 + 0.40 * clump;
@@ -67,6 +76,16 @@ ${NOISE}
           c *= 1.0 + 0.12 * (n3 - 0.5) * ngFine;
         } else if (ngFair) {
           c *= 0.92 + 0.14 * n2 + 0.06 * (n1 - 0.5) + 0.05 * (n3 - 0.5) * ngFine;
+          // Mowing stripes down the hole, with a soft cross-cut, sharp at any distance (antialiased).
+          if (ngSurf == 1.0 || ngSurf == 0.0) {
+            float across = dot(ngWp, vec2(uStripeDir.y, -uStripeDir.x)) / 7.0;
+            float w = fwidth(across) * 1.5 + 0.02;
+            float band = smoothstep(0.5 - w, 0.5 + w, abs(fract(across) - 0.5) * 2.0);
+            float cross = smoothstep(0.5 - w, 0.5 + w, abs(fract(dot(ngWp, uStripeDir) / 9.0) - 0.5) * 2.0);
+            c *= mix(1.10, 0.90, band) * mix(1.025, 0.975, cross);
+          } else {
+            c *= 1.06;                                                 // first cut: a lighter ring around the fairway
+          }
         }
         // Relief shading: exaggerate how the sun falls across slopes so a 2% green contour or a
         // fairway swale is readable from address, the way TV coverage and good course art show it.
@@ -160,8 +179,8 @@ function waterMaterial(opts) {
       uSun: { value: opts.sunStrength },
       uSkyTop: { value: new THREE.Color(opts.skyTop) },
       uSkyHorizon: { value: new THREE.Color(opts.skyHorizon) },
-      uDeep: { value: new THREE.Color(opts.deep || 0x0e3a4a) },
-      uShallow: { value: new THREE.Color(opts.shallow || 0x3f8c86) },
+      uDeep: { value: new THREE.Color(opts.deep || 0x0b5a7a) },
+      uShallow: { value: new THREE.Color(opts.shallow || 0x35b8b0) },
       uEllipse: { value: new THREE.Vector4(opts.cx, opts.cy, opts.rx, opts.ry) },
       uRot: { value: opts.rotDeg * Math.PI / 180 },
       uWind: { value: new THREE.Vector2(opts.windX || 0.5, opts.windY || 0.3) },

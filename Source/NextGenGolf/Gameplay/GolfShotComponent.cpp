@@ -70,7 +70,7 @@ void UGolfShotComponent::Strike()
 		if (!golf::shotTypeAllowed(Intent.type, ActiveClub, ActivePlay->lie())) { Intent.type = golf::ShotType::Normal; }
 		const golf::Launch Launch = golf::computeLaunch(LastSwing, ActiveClub, Intent, ActivePlay->lie(), ActiveAttributes,
 		                                                ActivePlay->conditions().wetness, ActiveSettings.leftHanded);
-		Outcome = ActivePlay->playShot(Launch, ActiveAim);
+		Outcome = ActivePlay->playShot(Launch, ActiveAim, ActiveSettings.leftHanded);   // applies the slope of the lie
 	}
 	PlaybackTime = 0.0;
 	PlaybackIndex = 0;

@@ -9,6 +9,7 @@ class AGolfHoleActor;
 class UCameraComponent;
 class UGolfShotComponent;
 class UStaticMeshComponent;
+class SGolfSwingMeter;
 
 /**
  * Minimal playable loop for the first in-engine milestone: generates a course if none exists, builds
@@ -44,6 +45,10 @@ private:
 	UPROPERTY() TObjectPtr<AActor> Ball;
 	UPROPERTY() TObjectPtr<UGolfShotComponent> Shot;
 	UPROPERTY() TObjectPtr<AGolfHoleActor> HoleActor;
+	TSharedPtr<SGolfSwingMeter> Meter;
+	float ZonePower = 1.f;
+	void UpdateMeter();
+	UFUNCTION() void HandleShotStruck(float CarryMetres);
 	std::vector<golf::ClubId> Bag;
 	int32 ClubIndex = 0;
 	double AimDeg = 0.0;

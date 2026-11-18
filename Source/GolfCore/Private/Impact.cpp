@@ -110,4 +110,28 @@ Launch computeLaunch(const SwingResult& sw, ClubId club, const ShotIntent& inten
     return L;
 }
 
+LieSlope lieSlopeAt(const ITerrain& t, Vec2 p, double aimDeg, bool leftHanded) {
+    const double e = 0.6;
+    double gx = (t.height({p.x + e, p.y}) - t.height({p.x - e, p.y})) / (2 * e);
+    double gy = (t.height({p.x, p.y + e}) - t.height({p.x, p.y - e})) / (2 * e);
+    Vec2 aim{std::sin(deg2rad(aimDeg)), std::cos(deg2rad(aimDeg))};
+    Vec2 right = aim.perp();
+    LieSlope s;
+    s.uphillPct = 100.0 * (gx * aim.x + gy * aim.y);
+    // A right-hander stands on the left of the aim line, so ground rising to the right lifts the ball above his feet.
+    s.ballAboveFeetPct = 100.0 * (gx * right.x + gy * right.y) * (leftHanded ? -1.0 : 1.0);
+    return s;
+}
+
+void applyLieSlope(Launch& L, const LieSlope& s, bool leftHanded) {
+    double up = clampd(s.uphillPct, -25.0, 25.0), above = clampd(s.ballAboveFeetPct, -25.0, 25.0);
+    double upDeg = rad2deg(std::atan(up / 100.0));
+    L.launchDeg = clampd(L.launchDeg + 0.75 * upDeg, 1.0, 62.0);      // the slope adds or removes loft
+    L.spinRpm *= 1.0 + 0.012 * up;
+    L.ballSpeed *= 1.0 - 0.004 * std::fabs(up);                        // awkward stance costs a little speed
+    double hand = leftHanded ? -1.0 : 1.0;
+    L.azimuthDeg -= hand * 0.45 * above;                               // above feet: starts left (RH)
+    L.spinAxisDeg = clampd(L.spinAxisDeg - hand * 0.9 * above, -45.0, 45.0);   // ...and draws
+}
+
 } // namespace golf

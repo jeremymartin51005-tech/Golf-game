@@ -33,7 +33,9 @@ public:
     bool holed() const { return res_.holed; }
     double distanceToPin() const { return (hole_.pin() - ball_.xy()).length(); }
     double headingTo(Vec2 target) const;
-    ShotOutcome playShot(const Launch& launch, double aimDeg);
+    // Applies the slope of the lie to the launch before simulating (see applyLieSlope).
+    ShotOutcome playShot(const Launch& launch, double aimDeg, bool leftHanded = false);
+    LieSlope lieSlope(double aimDeg, bool leftHanded = false) const { return lieSlopeAt(hole_, ball_.xy(), aimDeg, leftHanded); }
     ShotOutcome playPutt(double speed, double aimDeg);
     const HoleResult& result() const { return res_; }
 private:

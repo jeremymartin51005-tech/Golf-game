@@ -52,6 +52,20 @@ function ik(root, target, l1, l2, pole) {
 }
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 
+// Classic kitchen check: a small two-tone houndstooth-like grid, tiled along the trouser legs.
+function checkTexture(base) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const c = new THREE.Color(base);
+  g.fillStyle = '#e9e9e4'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#' + c.getHexString();
+  for (let y = 0; y < 64; y += 16) for (let x = 0; x < 64; x += 16) { if (((x + y) / 16) % 2 === 0) g.fillRect(x, y, 16, 16); g.fillRect(x + 6, y, 4, 16); }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 6);
+  if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 class GolferRig {
   constructor(look, scene) {
     this.look = look;
@@ -61,7 +75,7 @@ class GolferRig {
     const std = (c, r, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: r === undefined ? 0.8 : r, metalness: 0 }, extra || {}));
     this.mat = {
       skin: std(L.skin, 0.55, { emissive: new THREE.Color(L.skin).multiplyScalar(0.06) }),
-      shirt: std(L.shirt, 0.85), trousers: std(L.trousers, 0.8), shoe: std(L.shoe || 0xf4f4f2, 0.5), sole: std(0x2a2a2a, 0.9),
+      shirt: std(L.shirt, 0.85), trousers: std(L.trousers, 0.8, L.trouserCheck ? { map: checkTexture(L.trousers) } : undefined), shoe: std(L.shoe || 0xf4f4f2, 0.5), sole: std(0x2a2a2a, 0.9),
       hair: std(L.hair, 0.9), hat: std(L.hatColor, 0.75), glove: std(0xfafafa, 0.7), belt: std(0x1d1d1f, 0.5),
       eye: std(0x1b1b1b, 0.3), steel: std(0xc9ccd1, 0.25, { metalness: 0.9 }), grip: std(0x1a1a1a, 0.8), head: std(0x2b2e33, 0.35, { metalness: 0.7 }),
       apron: std(L.apronColor || 0xf7f7f2, 0.85),
@@ -94,8 +108,14 @@ class GolferRig {
       hm(new THREE.SphereGeometry(0.108, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), this.mat.hat, 0, 0.035, -0.005, 1, 0.85, 1.05);
       hm(new THREE.CylinderGeometry(0.075, 0.075, 0.008, 20, 1, false, -Math.PI / 2, Math.PI), this.mat.hat, 0, 0.04, 0.085, 1, 1, 0.9);
     } else if (L.hat === 'toque') {
-      hm(new THREE.CylinderGeometry(0.1, 0.105, 0.11, 20), this.mat.hat, 0, 0.1, -0.005);
-      hm(sph(0.14), this.mat.hat, 0, 0.2, -0.005, 1, 0.68, 1);
+      // Pleated chef's toque: a band, a fluted body, and a soft puffed crown.
+      hm(new THREE.CylinderGeometry(0.106, 0.108, 0.05, 28), this.mat.hat, 0, 0.07, -0.005);
+      const body = new THREE.CylinderGeometry(0.115, 0.104, 0.16, 48, 1, true);
+      const bp = body.attributes.position;
+      for (let i = 0; i < bp.count; i++) { const a = Math.atan2(bp.getZ(i), bp.getX(i)); const k = 1 + 0.06 * Math.abs(Math.sin(a * 8)); bp.setX(i, bp.getX(i) * k); bp.setZ(i, bp.getZ(i) * k); }
+      body.computeVertexNormals();
+      hm(body, this.mat.hat, 0, 0.17, -0.005);
+      hm(sph(0.15), this.mat.hat, 0, 0.27, -0.005, 1, 0.55, 1);
     } else if (L.hat === 'headband') {
       hm(new THREE.CylinderGeometry(0.106, 0.106, 0.028, 22, 1, true), this.mat.hat, 0, 0.045, -0.006);
     }
@@ -113,7 +133,14 @@ class GolferRig {
     // Character extras.
     if (L.chest) { p.chestL2 = add(sph(1), this.mat.shirt); p.chestR2 = add(sph(1), this.mat.shirt); }
     if (L.belly) p.belly = add(sph(1), L.apron ? this.mat.apron : this.mat.shirt);
-    if (L.rear) { p.rearL = add(sph(1), this.mat.trousers); p.rearR = add(sph(1), this.mat.trousers); }
+    if (L.rear) { p.rearL = add(sph(1), this.mat.trousers); p.rearR = add(sph(1), this.mat.trousers); p.rearC = add(sph(1), this.mat.trousers); }
+    if (L.chefJacket) {
+      this.mat.button = std(0x2a2a2a, 0.4);
+      p.buttons = [];
+      for (let i = 0; i < 6; i++) p.buttons.push(add(sph(0.011), this.mat.button));
+    }
+    if (L.neckerchief) { this.mat.kerchief = std(L.neckerchief, 0.8); p.kerchief = add(new THREE.TorusGeometry(1, 0.35, 8, 20), this.mat.kerchief); p.knot = add(sph(1), this.mat.kerchief); }
+    if (L.apron) { p.tieL = add(sph(1), this.mat.apron); p.tieR = add(sph(1), this.mat.apron); }
     if (L.apron) p.apron = add(sph(1), this.mat.apron);
     // Club.
     p.shaft = add(new THREE.CylinderGeometry(0.0065, 0.0045, 1, 8).translate(0, 0.5, 0), this.mat.steel);
@@ -219,7 +246,7 @@ class GolferRig {
 
     // ---- Place meshes -------------------------------------------------------------------------------
     const side = (s, lead, trail) => (lh > 0 ? (s === 'L' ? lead : trail) : (s === 'L' ? trail : lead));
-    const fwd = (line) => V3().crossVectors(line, spine).multiplyScalar(-lh).normalize();   // chest-facing direction
+    const fwd = (line) => V3().crossVectors(line, spine).multiplyScalar(lh).normalize();    // chest-facing direction (toward the ball at address)
     const Zs = fwd(S), Zh = fwd(Hl);
     const chestBase = pelvis.clone().addScaledVector(spine, Ls * 0.42);
     basis(P.abdomen, pelvis.clone().addScaledVector(spine, -0.02 * H), Hl.clone().lerp(S, 0.4).normalize(), spine, Zh.clone().lerp(Zs, 0.4).normalize(), halfH * 1.05, Ls * 0.47, halfH * 0.78 * b);
@@ -265,9 +292,32 @@ class GolferRig {
         basis(m, c, S, spine, Zs, 0.085 * b, 0.08 * b, 0.07 * b);
       }
     }
-    if (P.belly) basis(P.belly, pelvis.clone().addScaledVector(spine, Ls * 0.3).addScaledVector(Zh, halfH * 0.62 * b), Hl, spine, Zh, halfH * 0.95 * b, Ls * 0.32, halfH * 0.6 * b);
-    if (P.rearL) for (const [m, s] of [[P.rearL, 1], [P.rearR, -1]]) {
-      basis(m, pelvis.clone().addScaledVector(spine, -0.035 * H).addScaledVector(Hl, s * halfH * 0.5).addScaledVector(Zh, -halfH * 0.72 * b), Hl, spine, Zh, 0.1 * b, 0.1 * b, 0.09 * b);
+    const bellyK = L.belly === undefined ? 0 : L.belly;
+    if (P.belly) basis(P.belly, pelvis.clone().addScaledVector(spine, Ls * 0.3).addScaledVector(Zh, halfH * (0.45 + 0.17 * bellyK) * b), Hl, spine, Zh, halfH * (0.8 + 0.15 * bellyK) * b, Ls * 0.3, halfH * (0.45 + 0.15 * bellyK) * b);
+    if (P.rearL) {
+      // Fuller, rounder seat: two lobes set high on the hips and projecting back, with a centre fill so
+      // the silhouette reads as one smooth curve from the waist to the thighs.
+      const k = L.rear;
+      for (const [m, sgn] of [[P.rearL, 1], [P.rearR, -1]]) {
+        const c = pelvis.clone().addScaledVector(spine, -0.02 * H).addScaledVector(Hl, sgn * halfH * 0.48).addScaledVector(Zh, -halfH * (0.55 + 0.22 * k) * b);
+        basis(m, c, Hl, spine, Zh, 0.075 * (1 + 0.32 * k) * b, 0.085 * (1 + 0.28 * k) * b, 0.07 * (1 + 0.4 * k) * b);
+      }
+      basis(P.rearC, pelvis.clone().addScaledVector(spine, 0.005 * H).addScaledVector(Zh, -halfH * (0.42 + 0.18 * k) * b), Hl, spine, Zh, halfH * 0.95 * b, 0.075 * (1 + 0.2 * k) * b, 0.06 * (1 + 0.35 * k) * b);
+    }
+    if (P.buttons) {
+      // Double-breasted jacket: two vertical rows of buttons on the chest.
+      for (let i = 0; i < 6; i++) {
+        const row = i % 2 === 0 ? 1 : -1, level = Math.floor(i / 2);
+        const c = pelvis.clone().addScaledVector(spine, Ls * (0.6 + 0.11 * level)).addScaledVector(S, row * halfS * 0.32).addScaledVector(Zs, halfS * 0.58 * (0.8 + 0.2 * b) + 0.004);
+        P.buttons[i].position.copy(c);
+      }
+    }
+    if (P.kerchief) {
+      basis(P.kerchief, neckBase.clone().addScaledVector(spine, 0.01 * H), S, Zs, spine, 0.058, 0.055, 0.35);
+      basis(P.knot, neckBase.clone().addScaledVector(Zs, 0.06).addScaledVector(spine, -0.005 * H), S, spine, Zs, 0.03, 0.035, 0.022);
+    }
+    if (P.tieL) for (const [m, sgn] of [[P.tieL, 1], [P.tieR, -1]]) {
+      basis(m, pelvis.clone().addScaledVector(spine, 0.015 * H).addScaledVector(Hl, sgn * halfH * 0.95 * b).addScaledVector(Zh, -halfH * 0.3), Hl, spine, Zh, 0.02, 0.012, 0.03);
     }
     if (P.apron) basis(P.apron, pelvis.clone().addScaledVector(spine, Ls * 0.15).addScaledVector(Zh, halfH * (P.belly ? 1.15 : 0.82) * b), Hl, spine, Zh, halfH * 0.9, Ls * 0.42, 0.02);
 
