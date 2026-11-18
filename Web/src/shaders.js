@@ -82,7 +82,11 @@ ${NOISE}
             float w = fwidth(across) * 1.5 + 0.02;
             float band = smoothstep(0.5 - w, 0.5 + w, abs(fract(across) - 0.5) * 2.0);
             float cross = smoothstep(0.5 - w, 0.5 + w, abs(fract(dot(ngWp, uStripeDir) / 9.0) - 0.5) * 2.0);
-            c *= mix(1.10, 0.90, band) * mix(1.025, 0.975, cross);
+            // Real stripes are blades laid in opposite directions, so light and dark swap with the view.
+            vec2 viewXZ = normalize(vec2(vNgWorld.x - cameraPosition.x, -(vNgWorld.z - cameraPosition.z)) + 1e-4);
+            float facing = clamp(dot(viewXZ, uStripeDir) * 1.4, -1.0, 1.0);
+            float s1 = mix(1.10, 0.90, band), s2 = mix(0.92, 1.08, band);
+            c *= mix(s2, s1, facing * 0.5 + 0.5) * mix(1.025, 0.975, cross);
           } else {
             c *= 1.06;                                                 // first cut: a lighter ring around the fairway
           }
@@ -134,13 +138,16 @@ ${NOISE}
 // ---------------------------------------------------------------------------------------------------
 // Sky
 // ---------------------------------------------------------------------------------------------------
-function skyMaterial(top, horizon, sunDir, sunStrength) {
+function skyMaterial(top, horizon, sunDir, sunStrength, cover, cloudTint) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTop: { value: new THREE.Color(top) },
       uHorizon: { value: new THREE.Color(horizon) },
       uSunDir: { value: sunDir.clone() },
       uSun: { value: sunStrength },
+      uTime: { value: 0 },
+      uCover: { value: cover === undefined ? 0.35 : cover },
+      uCloud: { value: new THREE.Color(cloudTint === undefined ? 0xffffff : cloudTint) },
     },
     vertexShader: `varying vec3 vDir;
       void main() {
@@ -149,7 +156,13 @@ function skyMaterial(top, horizon, sunDir, sunStrength) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform float uSun;
+      uniform float uTime; uniform float uCover; uniform vec3 uCloud;
       varying vec3 vDir;
+      ${NOISE}
+      float cloudDensity(vec2 p) {
+        float n = ngFbm(p) * 0.65 + ngFbm(p * 2.7 + 11.3) * 0.35;
+        return smoothstep(1.0 - uCover - 0.18, 1.0 - uCover + 0.22, n);
+      }
       void main() {
         vec3 d = normalize(vDir);
         float y = max(d.y, 0.0);
@@ -158,6 +171,16 @@ function skyMaterial(top, horizon, sunDir, sunStrength) {
         float mu = max(dot(d, normalize(uSunDir)), 0.0);
         vec3 sunCol = vec3(1.0, 0.92, 0.78);
         col += sunCol * uSun * (pow(mu, 1200.0) * 14.0 + pow(mu, 60.0) * 0.35 + pow(mu, 6.0) * 0.12);
+        // Clouds on a flat layer overhead, drifting slowly. Sunlit tops, darker undersides, fading at the horizon.
+        if (d.y > 0.02 && uCover > 0.01) {
+          vec2 p = d.xz / (d.y + 0.12) * 1.6 + vec2(uTime * 0.012, uTime * 0.004);
+          float dens = cloudDensity(p);
+          float shade = cloudDensity(p + normalize(uSunDir.xz + 1e-4) * 0.18);   // denser toward the sun = shadowed underside
+          vec3 lit = mix(uCloud, uCloud * vec3(0.72, 0.75, 0.82), shade * 0.8);
+          lit += sunCol * uSun * pow(mu, 8.0) * 0.5 * (1.0 - shade);             // silver lining near the sun
+          float fade = smoothstep(0.02, 0.22, d.y);
+          col = mix(col, lit, dens * fade * 0.92);
+        }
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>

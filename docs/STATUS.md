@@ -28,6 +28,13 @@ automated tests, including a scripted browser session, not by a person judging h
 - Address, flight, landing, putting and overhead cameras; shot tracer; synthesised sound effects;
   Performance / Balanced / Quality graphics settings; frame-time display.
 
+## Graphics pass (sixth session)
+
+Shader-drawn clouds that drift, with sunlit tops and shaded undersides (amount set by the weather),
+replacing flat cloud sprites; fuller trees built from several overlapping canopy masses (tiered
+pines) with baked shading; mowing stripes that swap light and dark with the viewing angle, as real
+stripes do; two layered rings of distant hills for depth, with snow on alpine peaks.
+
 ## Visual and swing-UI upgrade (fifth session)
 
 Scope was limited to four items. **No Unreal Engine was available** (no Unreal install in this

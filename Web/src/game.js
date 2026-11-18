@@ -183,18 +183,34 @@ function draw() {
 
 // Tree canopy: a lumpy, smooth-shaded mass with darker underside and interior (baked as vertex colour).
 function canopyGeometry(pine) {
-  const g = pine ? new THREE.ConeGeometry(1, 1, 12, 6) : new THREE.SphereGeometry(1, 18, 12);
-  const pos = g.attributes.position, col = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const n = Math.sin(x * 5.1 + y * 3.7) * Math.sin(z * 4.3 - y * 2.9) * 0.5 + Math.sin(x * 11.0 + z * 9.0) * 0.25;
-    const k = pine ? 1 + 0.12 * n * (0.5 - y) : 1 + 0.16 * n;
-    if (pine) { pos.setX(i, x * k); pos.setZ(i, z * k); } else pos.setXYZ(i, x * k, y * k, z * k);
-    const shade = pine ? 0.55 + 0.45 * (y + 0.5) : 0.5 + 0.5 * (y * 0.5 + 0.5);
-    const c = Math.min(1.1, shade * (0.88 + 0.25 * n));
-    col[i * 3] = c; col[i * 3 + 1] = c; col[i * 3 + 2] = c;
+  // Broadleaf: five overlapping lumpy masses. Pine: three stacked, slightly drooping tiers.
+  const parts = pine
+    ? [[0, -0.32, 0, 1.0, 0.45], [0, 0.0, 0, 0.78, 0.42], [0, 0.3, 0, 0.52, 0.4]]
+    : [[0, 0, 0, 0.78, 0.7], [0.42, -0.12, 0.1, 0.55, 0.5], [-0.38, -0.08, -0.22, 0.55, 0.5], [0.08, 0.28, -0.3, 0.5, 0.45], [-0.15, 0.24, 0.36, 0.48, 0.42]];
+  const pos = [], col = [], idx = [];
+  for (const [ox, oy, oz, r, h] of parts) {
+    const g = pine ? new THREE.ConeGeometry(r, h, 14, 4) : new THREE.SphereGeometry(r, 16, 11);
+    const p = g.attributes.position, base = pos.length / 3;
+    for (let i = 0; i < p.count; i++) {
+      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const n = Math.sin(x * 7.1 + y * 5.3 + ox * 9) * Math.sin(z * 6.7 - y * 4.1 + oz * 7) * 0.5 + Math.sin(x * 15.0 + z * 13.0) * 0.25;
+      if (pine) { const k = 1 + 0.1 * n; x *= k; z *= k; if (y < -h * 0.3) y -= 0.05 * (x * x + z * z); }
+      else { const k = 1 + 0.14 * n; x *= k; y *= k; z *= k; }
+      x += ox; y += oy; z += oz;
+      pos.push(x, y, z);
+      // Baked lighting: darker toward the base and the inside of the crown, brighter on top and outside.
+      const outward = Math.min(1, Math.hypot(x, z) / 0.9);
+      const c = Math.min(1.25, (0.6 + 0.42 * (y + 0.6) + 0.22 * outward) * (0.9 + 0.2 * n));
+      col.push(c, c, c);
+    }
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx.push(gi[i] + base);
+    g.dispose();
   }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
   g.computeVertexNormals();
   return g;
 }
@@ -574,50 +590,39 @@ function buildHole(index, env, weather) {
 
   // Sky and fog follow the weather.
   const sky = sky0;
-  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2200, 32, 16), GolfShaders.skyMaterial(sky[0], sky[1], SUN_DIR, sunStrength));
+  const cloudCover = [0.32, 0.55, 0.82, 0.88, 0.4, 0.6][weather] || 0.35, cloudTint = [0xffffff, 0xf7f9fb, 0xd5dade, 0xb9c0c6, 0xffffff, 0xeef1f3][weather] || 0xffffff;
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(2200, 48, 24), GolfShaders.skyMaterial(sky[0], sky[1], SUN_DIR, sunStrength, cloudCover, mixHex(cloudTint, tod.sun, tod.el < 12 ? 0.35 : 0.08)));
+  world.timeUniforms.push(skyMesh.material.uniforms.uTime);
   skyMesh.renderOrder = -10;
   skyMesh.frustumCulled = false;
   const skyGroup = new THREE.Group();
   skyGroup.add(skyMesh);
-  // Clouds: soft sprites on the dome. Count and tint follow the weather.
-  const puff = document.createElement('canvas'); puff.width = puff.height = 128;
-  const pc = puff.getContext('2d');
-  for (let i = 0; i < 9; i++) {
-    const cx = 30 + ((i * 53) % 70), cy = 50 + ((i * 31) % 30), r = 22 + ((i * 17) % 18);
-    const gr = pc.createRadialGradient(cx, cy, 0, cx, cy, r);
-    gr.addColorStop(0, 'rgba(255,255,255,0.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    pc.fillStyle = gr; pc.fillRect(0, 0, 128, 128);
-  }
-  const puffTex = new THREE.CanvasTexture(puff);
-  const cloudCount = [7, 16, 26, 26, 10, 0][weather] || 0, cloudTint = [0xffffff, 0xf4f6f8, 0xc9ced2, 0xaab0b6, 0xffffff, 0xffffff][weather];
-  for (let i = 0; i < cloudCount; i++) {
-    const az = (i * 2.399) + weather, el = 0.14 + ((i * 0.6180339) % 1) * 0.5, R = 1700;
-    const cloud = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: puffTex, color: cloudTint, transparent: true, opacity: 0.9, fog: false, depthWrite: false }));
-    cloud.position.set(Math.cos(az) * Math.cos(el) * R, Math.sin(el) * R, Math.sin(az) * Math.cos(el) * R);
-    const w = 420 + ((i * 97) % 380);
-    cloud.scale.set(w, w * 0.42, 1);
-    cloud.lookAt(0, 0, 0);
-    skyGroup.add(cloud);
-  }
-  // Distant hills give the horizon some shape (mountains with snow for alpine; none out at sea or on links).
+  // Distant hills: two layered rings, the far one hazier and bluer, so the horizon has depth
+  // (snow-capped peaks on alpine courses; none out at sea or on links).
   if (env !== 2 && env !== 5) {
-    const segs = 96, ring = new Float32Array((segs + 1) * 2 * 3), rc = new Float32Array((segs + 1) * 2 * 3);
-    const tall = env === 3 ? 330 : env === 1 ? 150 : env === 4 ? 120 : 70;
-    const lowC = new THREE.Color(env === 4 ? 0x9a7b5a : 0x4c6b4a), highC = new THREE.Color(env === 3 ? 0xf2f5f8 : env === 4 ? 0xb08a62 : 0x5f7d5c);
-    for (let i = 0; i <= segs; i++) {
-      const a = i / segs * Math.PI * 2, R = 1250;
-      const hgt = tall * (0.35 + 0.65 * Math.abs(Math.sin(a * 3.1 + env) * Math.sin(a * 7.3 + 1.7) + 0.35 * Math.sin(a * 17.0)));
-      ring.set([Math.cos(a) * R, -30, Math.sin(a) * R, Math.cos(a) * R, hgt, Math.sin(a) * R], i * 6);
-      const top = lowC.clone().lerp(highC, Math.min(1, hgt / tall));
-      rc.set([lowC.r, lowC.g, lowC.b, top.r, top.g, top.b], i * 6);
+    const layers = [{ R: 1500, tall: env === 3 ? 420 : env === 1 ? 190 : env === 4 ? 150 : 110, haze: 0.55, seed: 2.3 },
+                    { R: 1150, tall: env === 3 ? 280 : env === 1 ? 120 : env === 4 ? 90 : 65, haze: 0.2, seed: 0 }];
+    for (const Lr of layers) {
+      const segs = 160, ring = new Float32Array((segs + 1) * 2 * 3), rc = new Float32Array((segs + 1) * 2 * 3);
+      const horizonC = new THREE.Color(sky[1]);
+      const lowC = new THREE.Color(env === 4 ? 0x9a7b5a : 0x3f6e46).lerp(horizonC, Lr.haze), highC = new THREE.Color(env === 3 ? 0xf2f5f8 : env === 4 ? 0xb89068 : 0x5c8c5a).lerp(horizonC, Lr.haze * 0.9);
+      for (let i = 0; i <= segs; i++) {
+        const a = i / segs * Math.PI * 2;
+        const ridge = Math.abs(Math.sin(a * 3.1 + env + Lr.seed) * Math.sin(a * 7.3 + 1.7 + Lr.seed)) + 0.3 * Math.abs(Math.sin(a * 17.0 + Lr.seed)) + 0.12 * Math.sin(a * 41.0);
+        const hgt = Lr.tall * (0.3 + 0.7 * Math.min(1.2, ridge));
+        ring.set([Math.cos(a) * Lr.R, -30, Math.sin(a) * Lr.R, Math.cos(a) * Lr.R, hgt, Math.sin(a) * Lr.R], i * 6);
+        const snow = env === 3 ? Math.min(1, Math.max(0, (hgt / Lr.tall - 0.7) * 3)) : Math.min(1, hgt / Lr.tall);
+        const top = lowC.clone().lerp(highC, snow);
+        rc.set([lowC.r, lowC.g, lowC.b, top.r, top.g, top.b], i * 6);
+      }
+      const hi = [];
+      for (let i = 0; i < segs; i++) { const a = i * 2; hi.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      const hg = new THREE.BufferGeometry();
+      hg.setAttribute('position', new THREE.BufferAttribute(ring, 3));
+      hg.setAttribute('color', new THREE.BufferAttribute(rc, 3));
+      hg.setIndex(hi);
+      skyGroup.add(new THREE.Mesh(hg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: false })));
     }
-    const hi = [];
-    for (let i = 0; i < segs; i++) { const a = i * 2; hi.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    const hg = new THREE.BufferGeometry();
-    hg.setAttribute('position', new THREE.BufferAttribute(ring, 3));
-    hg.setAttribute('color', new THREE.BufferAttribute(rc, 3));
-    hg.setIndex(hi);
-    skyGroup.add(new THREE.Mesh(hg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
   }
   world.sky = skyGroup;
   g.add(skyGroup);
